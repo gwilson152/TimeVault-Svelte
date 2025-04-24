@@ -1,55 +1,39 @@
-import type { Invoice } from '$lib/types';
+import type { Invoice, TimeEntry } from '$lib/types';
+import * as api from '$lib/services/api';
 import { timeEntryStore } from '$lib/stores/timeEntryStore';
-import { clientStore } from '$lib/stores/clientStore';
-import { get } from 'svelte/store';
 
 /**
  * Generate an invoice for a client
  */
-export function generateInvoice(clientId: string): Invoice | null {
-  const clients = get(clientStore);
-  const client = clients.find(c => c.id === clientId);
-  
-  if (!client) {
-    console.error(`Client with ID ${clientId} not found`);
-    return null;
-  }
-  
+export async function generateInvoice(clientId: string): Promise<Invoice | null> {
   // Get unbilled entries for this client
   const unbilledEntries = timeEntryStore.getUnbilledByClientId(clientId);
   
   if (unbilledEntries.length === 0) {
-    console.info(`No unbilled entries found for client ${client.name}`);
+    console.info('No unbilled entries found for this client');
     return null;
   }
   
-  // Calculate totals
-  const totalHours = unbilledEntries.reduce((sum, entry) => sum + entry.hours, 0);
-  const totalAmount = totalHours * client.rate;
-  
-  // Create invoice object
-  const invoice: Invoice = {
-    clientId,
-    entries: unbilledEntries,
-    totalHours,
-    totalAmount,
-    date: new Date()
-  };
-  
-  return invoice;
+  try {
+    const invoice = await api.generateInvoice(clientId, unbilledEntries);
+    return invoice;
+  } catch (error) {
+    console.error('Failed to generate invoice:', error);
+    return null;
+  }
 }
 
 /**
  * Process an invoice by marking all entries as billed
  */
-export function processInvoice(invoice: Invoice): void {
+export async function processInvoice(invoice: Invoice): Promise<void> {
   if (!invoice || !invoice.entries.length) {
     return;
   }
   
-  // Mark all entries as billed
+  // Mark entries as billed
   const entryIds = invoice.entries.map(entry => entry.id);
-  timeEntryStore.markAsBilled(entryIds);
+  await timeEntryStore.markAsBilled(entryIds);
 }
 
 /**

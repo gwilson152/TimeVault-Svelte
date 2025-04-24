@@ -1,75 +1,63 @@
 import { writable } from 'svelte/store';
 import type { Client, NewClient } from '$lib/types';
-import { v4 as uuidv4 } from 'uuid';
-
-// Sample initial data
-const initialClients: Client[] = [
-  {
-    id: '1',
-    name: 'Acme Corp',
-    rate: 150,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  },
-  {
-    id: '2',
-    name: 'Globex Industries',
-    rate: 175,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  },
-  {
-    id: '3',
-    name: 'Initech',
-    rate: 125,
-    createdAt: new Date(),
-    updatedAt: new Date()
-  }
-];
+import * as api from '$lib/services/api';
 
 function createClientStore() {
-  const { subscribe, update, set } = writable<Client[]>(initialClients);
+  const { subscribe, set, update } = writable<Client[]>([]);
 
   return {
     subscribe,
     
-    add: (newClient: NewClient) => {
-      const now = new Date();
-      const client: Client = {
-        id: uuidv4(),
-        ...newClient,
-        createdAt: now,
-        updatedAt: now
-      };
-      
-      update(clients => [...clients, client]);
-      return client;
+    async load() {
+      try {
+        const clients = await api.getClients();
+        set(clients);
+      } catch (error) {
+        console.error('Failed to load clients:', error);
+      }
     },
     
-    update: (id: string, updatedClient: Partial<Client>) => {
-      update(clients => 
-        clients.map(client => 
-          client.id === id 
-            ? { ...client, ...updatedClient, updatedAt: new Date() } 
-            : client
-        )
-      );
+    async add(newClient: NewClient) {
+      try {
+        const client = await api.createClient(newClient);
+        update(clients => [...clients, client]);
+        return client;
+      } catch (error) {
+        console.error('Failed to add client:', error);
+        throw error;
+      }
     },
     
-    remove: (id: string) => {
-      update(clients => clients.filter(client => client.id !== id));
+    async update(id: string, updatedClient: Partial<Client>) {
+      try {
+        const client = await api.updateClient(id, updatedClient);
+        update(clients => clients.map(c => c.id === id ? client : c));
+        return client;
+      } catch (error) {
+        console.error('Failed to update client:', error);
+        throw error;
+      }
     },
     
-    getById: (id: string): Client | undefined => {
+    async remove(id: string) {
+      try {
+        await api.deleteClient(id);
+        update(clients => clients.filter(c => c.id !== id));
+      } catch (error) {
+        console.error('Failed to delete client:', error);
+        throw error;
+      }
+    },
+    
+    // Helper method to get client by ID (synchronous, uses local store state)
+    getById(id: string): Client | undefined {
       let foundClient: Client | undefined;
       update(clients => {
-        foundClient = clients.find(client => client.id === id);
+        foundClient = clients.find(c => c.id === id);
         return clients;
       });
       return foundClient;
-    },
-    
-    reset: () => set(initialClients)
+    }
   };
 }
 
