@@ -26,6 +26,7 @@ model Client {
   timeEntries TimeEntry[]
   invoices    Invoice[]
   tickets     Ticket[]
+  billingRateOverrides ClientBillingRateOverride[]
 
   @@map("clients")
   @@index([parentId])
@@ -52,27 +53,129 @@ model TimeEntry {
 }
 
 model Invoice {
-  id          String      @id @default(uuid())
-  clientId    String
-  totalHours  Float
-  totalAmount Float
-  date        DateTime    @default(now())
-  client      Client      @relation(fields: [clientId], references: [id])
-  entries     TimeEntry[]
+  id           String         @id @default(uuid())
+  invoiceNumber String?      // Manual invoice number
+  clientId     String
+  totalHours   Float
+  totalAmount  Float
+  totalCost    Float         @default(0)
+  totalProfit  Float         @default(0)
+  date         DateTime      @default(now())
+  client       Client        @relation(fields: [clientId], references: [id])
+  entries      TimeEntry[]
+  addons       InvoiceAddon[]
 
   @@map("invoices")
+}
+
+model InvoiceAddon {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  description String
+  amount      Float
+  cost        Float    @default(0)
+  quantity    Float    @default(1)
+  profit      Float    @default(0)
+  ticketAddonId String?
+  ticketAddon TicketAddon? @relation(fields: [ticketAddonId], references: [id])
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("invoice_addons")
+  @@index([invoiceId])
+  @@index([ticketAddonId])
+}
+
+model TicketAddon {
+  id          String   @id @default(uuid())
+  ticketId    String
+  description String
+  amount      Float
+  cost        Float    @default(0)
+  quantity    Float    @default(1)
+  profit      Float    @default(0)
+  billed      Boolean  @default(false)
+  ticket      Ticket   @relation(fields: [ticketId], references: [id])
+  invoiceAddons InvoiceAddon[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ticket_addons")
+  @@index([ticketId])
 }
 
 model Ticket {
   id          String      @id @default(cuid())
   title       String
   description String?
-  status      String      @default("open") // 'open' | 'in-progress' | 'closed'
+  statusId    String      @default("open")
   clientId    String
   client      Client      @relation(fields: [clientId], references: [id])
   timeEntries TimeEntry[]
+  addons      TicketAddon[]
+  status      TicketStatus @relation(fields: [statusId], references: [id])
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   @@index([clientId])
+  @@index([statusId])
+}
+
+model TicketStatus {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  color       String   @default("#718096") // Default gray color
+  isDefault   Boolean  @default(false)
+  isClosed    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  tickets     Ticket[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ticket_statuses")
+}
+
+model Settings {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  category    String   @default("general")
+  label       String
+  description String?
+  type        String   @default("string") // string, number, boolean, json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model BillingRate {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  rate        Float
+  description String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  overrides   ClientBillingRateOverride[]
+
+  @@map("billing_rates")
+}
+
+model ClientBillingRateOverride {
+  id           String      @id @default(uuid())
+  clientId     String
+  baseRateId   String
+  overrideType String      // "percentage" | "fixed"
+  value        Float
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  client       Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  baseRate     BillingRate @relation(fields: [baseRateId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, baseRateId])
+  @@map("client_billing_rate_overrides")
+  @@index([clientId])
+  @@index([baseRateId])
 }

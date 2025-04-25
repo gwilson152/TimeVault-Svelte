@@ -4,54 +4,50 @@
   import { clientStore } from '$lib/stores/clientStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
   import TimeEntryList from '$lib/components/TimeEntryList.svelte';
-  import type { Ticket, TicketStatus, TimeEntry } from '$lib/types';
+  import type { TimeEntry } from '$lib/types';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { settingsStore } from '$lib/stores/settingsStore';
 
   // State
   let ticket = $state<ReturnType<typeof getTicket> | null>(null);
   let isUpdating = $state(false);
-  let newStatus = $state<TicketStatus>('open');
+  let newStatusId = $state<string | null>(null);
+  let ticketId = $derived($page.params.id);
 
   // Computed values
   const clientName = $derived(ticket?.clientId ? 
     $clientStore.find(c => c.id === ticket?.clientId)?.name || 'Unknown Client' : '');
   
   const ticketEntries = $derived(
-    $timeEntryStore.filter(entry => entry.ticketId === $page.params.id)
+    $timeEntryStore.filter(entry => entry.ticketId === ticketId)
   );
   
   const totalHours = $derived(
     ticketEntries.reduce((sum, entry) => sum + entry.hours, 0)
   );
 
-  // Ensure data is loaded
+  // Load data
   onMount(async () => {
     await Promise.all([
       ticketStore.load(),
       clientStore.load(),
-      timeEntryStore.load()
+      timeEntryStore.load(),
+      settingsStore.load()
     ]);
   });
 
   // Get the full ticket info including related data
   function getTicket() {
-    return $ticketsWithClientInfo.find(t => t.id === $page.params.id);
+    return $ticketsWithClientInfo.find(t => t.id === ticketId);
   }
 
   $effect(() => {
     ticket = getTicket();
     if (ticket) {
-      newStatus = ticket.status;
+      newStatusId = ticket.statusId;
     }
   });
-
-  // Status options with labels and colors
-  const statusOptions: Array<{value: TicketStatus, label: string, color: string}> = [
-    { value: 'open', label: 'Open', color: 'bg-green-100 text-green-800' },
-    { value: 'in-progress', label: 'In Progress', color: 'bg-yellow-100 text-yellow-800' },
-    { value: 'closed', label: 'Closed', color: 'bg-gray-100 text-gray-800' }
-  ];
 
   // Format date in a user-friendly way
   function formatDate(date: Date | string): string {
@@ -66,12 +62,12 @@
 
   // Handle status change
   async function updateStatus() {
-    if (!ticket || ticket.status === newStatus) return;
+    if (!ticket || ticket.statusId === newStatusId || !newStatusId) return;
     
     isUpdating = true;
     try {
       await ticketStore.update(ticket.id, {
-        status: newStatus
+        statusId: newStatusId
       });
       ticket = getTicket(); // Refresh ticket data
     } catch (error) {
@@ -84,7 +80,7 @@
 
   // Handle edit click
   function handleEdit() {
-    goto(`/tickets/edit/${$page.params.id}`);
+    goto(`/tickets/edit/${ticketId}`);
   }
 
   // Handle delete click
@@ -124,46 +120,35 @@
         href="/tickets"
         class="text-text-blue-300 hover:text-accentBlue flex items-center gap-1"
       >
-        <span>← Back to Tickets</span>
+        <span class="material-icons text-sm">arrow_back</span>
+        Back to Tickets
       </a>
     </div>
     
-    <!-- Ticket Header -->
+    <!-- Header -->
     <div class="card-glass">
-      <div class="flex justify-between items-start">
-        <div>
+      <div class="flex items-start justify-between">
+        <div class="space-y-2">
           <h1 class="text-2xl font-bold text-default">{ticket.title}</h1>
-          <div class="mt-2 text-text-blue-300">
-            <p>
-              <span class="font-medium text-default">Client:</span>
-              <a href={`/clients/${ticket.clientId}`} class="ml-1 text-accentBlue hover:text-accentPink">
-                {clientName}
-              </a>
-            </p>
-            <p>
-              <span class="font-medium text-default">Created:</span>
-              <span class="ml-1">{formatDate(ticket.createdAt)}</span>
-            </p>
-            <p>
-              <span class="font-medium text-default">Last Updated:</span>
-              <span class="ml-1">{formatDate(ticket.updatedAt)}</span>
-            </p>
-          </div>
+          <p class="text-sm text-text-blue-300">
+            Client: {clientName}
+          </p>
+          <p class="text-sm text-text-blue-300">
+            Created: {formatDate(ticket.createdAt)}
+          </p>
         </div>
         
-        <div class="flex items-center gap-2">
+        <div class="flex items-center space-x-4">
           <div class="flex items-center">
             <span class="mr-2 text-sm font-medium text-default">Status:</span>
             <select
-              bind:value={newStatus}
+              bind:value={newStatusId}
               onchange={updateStatus}
               disabled={isUpdating}
               class="px-3 py-2 border border-gray-600 rounded-md bg-gray-800 text-default focus:border-accentBlue"
             >
-              {#each statusOptions as option}
-                <option value={option.value}>
-                  {option.label}
-                </option>
+              {#each $settingsStore.filter(s => s.category === 'ticket') as status}
+                <option value={status.id}>{status.value}</option>
               {/each}
             </select>
           </div>
@@ -200,9 +185,11 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
       <div class="card-glass">
         <h3 class="text-lg font-semibold mb-2">Status</h3>
-        <span class="px-2.5 py-1 inline-flex text-sm leading-5 font-medium rounded-full
-          {statusOptions.find(o => o.value === ticket?.status)?.color || ''}">
-          {ticket?.status}
+        <span 
+          class="px-2.5 py-1 inline-flex text-sm leading-5 font-medium rounded-full"
+          style="background-color: {ticket.status.color}25; color: {ticket.status.color};"
+        >
+          {ticket.status.name}
         </span>
       </div>
       <div class="card-glass">
@@ -221,7 +208,7 @@
       {#if ticketEntries.length === 0}
         <p class="text-text-blue-300">No time entries associated with this ticket yet.</p>
       {:else}
-        <TimeEntryList onEdit={handleTimeEntryEdit} />
+        <TimeEntryList showForm={false} />
       {/if}
     </div>
   </div>
@@ -233,7 +220,7 @@
       href="/tickets"
       class="btn btn-primary"
     >
-      Back to Tickets
+      Return to Tickets
     </a>
   </div>
 {/if}

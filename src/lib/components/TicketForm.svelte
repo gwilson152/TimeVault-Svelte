@@ -1,115 +1,118 @@
 <script lang="ts">
+  import { getContext } from 'svelte';
+  import type { Ticket, TicketAddon } from '$lib/types';
+  import { settingsStore } from '$lib/stores/settingsStore';
   import { clientStore } from '$lib/stores/clientStore';
-  import { ticketStore } from '$lib/stores/ticketStore';
-  import type { Ticket, TicketStatus, NewTicket } from '$lib/types';
-  import { onMount } from 'svelte';
 
-  const props = $props<{
-    editTicket?: Ticket | null;
-    onSave?: (ticket: Ticket) => void;
-    onCancel?: () => void;
-  }>();
+  export let ticket: Partial<Ticket & { priority?: string }> = {};
+  export let onSubmit: (ticket: Partial<Ticket>) => void;
+  export let editTicket: Ticket | null = null;
+  export let onSave: ((ticket: Ticket) => void) | null = null;
 
-  // Form state
-  let title = $state('');
-  let description = $state('');
-  let status = $state<TicketStatus>('open');
-  let clientId = $state('');
-  let isSubmitting = $state(false);
+  let addons: TicketAddon[] = ticket.addons || [];
+  let selectedAddonType = '';
+  let addonAmount: number = 0;
+  let addonDescription: string = '';
 
-  // Status options
-  const statusOptions = ['open', 'in-progress', 'closed'] as const;
+  // Get the derived store
+  const { ticketSettings } = settingsStore;
+  
+  $: statuses = $ticketSettings.statuses || [];
+  $: priorities = $ticketSettings.priorities || [];
+  $: addonTypes = $ticketSettings.addonTypes || [];
 
-  // Initialize form with edit data if available
-  $effect(() => {
-    if (props.editTicket) {
-      title = props.editTicket.title;
-      description = props.editTicket.description || '';
-      status = props.editTicket.status;
-      clientId = props.editTicket.clientId;
+  $: if (editTicket) {
+    ticket = { ...editTicket };
+  }
+
+  function addAddon() {
+    if (selectedAddonType) {
+      const addonType = addonTypes.find((type) => type?.name === selectedAddonType);
+      if (addonType) {
+        addons = [...addons, {
+          id: crypto.randomUUID(),
+          ticketId: ticket.id || '',
+          name: selectedAddonType,
+          amount: addonAmount || addonType.defaultAmount,
+          description: addonDescription,
+          billed: false,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }];
+        selectedAddonType = '';
+        addonAmount = 0;
+        addonDescription = '';
+      }
     }
-  });
+  }
 
-  // Handle form submission
-  async function handleSubmit(e: SubmitEvent) {
-    e.preventDefault();
-    
-    if (!title || !clientId) {
-      alert('Please fill in all required fields');
-      return;
-    }
-    
-    isSubmitting = true;
-    
-    try {
-      let result: Ticket;
-      
-      if (props.editTicket) {
-        // Update existing ticket
-        result = await ticketStore.update(props.editTicket.id, {
-          title,
-          description,
-          status,
-          clientId
-        });
-      } else {
-        // Create new ticket
-        const newTicket: NewTicket = {
-          title,
-          description: description || null,
-          status,
-          clientId
-        };
-        
-        result = await ticketStore.add(newTicket);
+  function removeAddon(id: string) {
+    addons = addons.filter(addon => addon.id !== id);
+  }
+
+  function handleSubmit() {
+    onSubmit({ ...ticket, addons });
+  }
+
+  function handleSave() {
+    if (onSave) {
+      const ticketToSave = { ...ticket, addons };
+      if (!ticketToSave.id) {
+        ticketToSave.id = crypto.randomUUID(); // Ensure id is set
       }
-      
-      // Reset form
-      if (!props.editTicket) {
-        title = '';
-        description = '';
-        status = 'open';
-        clientId = '';
-      }
-      
-      // Call onSave callback if provided
-      if (props.onSave) {
-        props.onSave(result);
-      }
-    } catch (error) {
-      console.error('Failed to save ticket:', error);
-      alert('Failed to save ticket');
-    } finally {
-      isSubmitting = false;
+      onSave(ticketToSave as Ticket);
     }
   }
 </script>
 
-<form onsubmit={handleSubmit} class="space-y-4">
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <div>
-      <label for="title" class="block text-sm font-medium text-default mb-1">
-        Title <span class="text-accentPink">*</span>
-      </label>
+<form on:submit|preventDefault={handleSubmit} class="form-container">
+  <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+    <div class="form-group">
+      <label for="title" class="form-label">Title</label>
       <input
-        id="title"
         type="text"
+        id="title"
+        bind:value={ticket.title}
+        class="form-control"
         required
-        bind:value={title}
-        class="w-full px-3 py-2 border border-gray-600 rounded-md bg-gray-800 text-default"
-        placeholder="Enter ticket title"
       />
     </div>
-    
-    <div>
-      <label for="client" class="block text-sm font-medium text-default mb-1">
-        Client <span class="text-accentPink">*</span>
-      </label>
+
+    <div class="form-group">
+      <label for="status" class="form-label">Status</label>
       <select
-        id="client"
+        id="status"
+        bind:value={ticket.statusId}
+        class="form-control"
         required
-        bind:value={clientId}
-        class="w-full px-3 py-2 border border-gray-600 rounded-md bg-gray-800 text-default"
+      >
+        {#each statuses as status}
+          <option value={status.id}>{status.name}</option>
+        {/each}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="priority" class="form-label">Priority</label>
+      <select
+        id="priority"
+        bind:value={ticket.priority}
+        class="form-control"
+        required
+      >
+        {#each priorities as priority}
+          <option value={priority}>{priority}</option>
+        {/each}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="clientId" class="form-label">Client</label>
+      <select
+        id="clientId"
+        bind:value={ticket.clientId}
+        class="form-control"
+        required
       >
         <option value="">Select a client</option>
         {#each $clientStore as client}
@@ -118,60 +121,105 @@
       </select>
     </div>
   </div>
-  
-  <div>
-    <label for="description" class="block text-sm font-medium text-default mb-1">
-      Description
-    </label>
+
+  <div class="form-group">
+    <label for="description" class="form-label">Description</label>
     <textarea
       id="description"
-      rows="4"
-      bind:value={description}
-      class="w-full px-3 py-2 border border-gray-600 rounded-md bg-gray-800 text-default"
-      placeholder="Enter ticket description (optional)"
+      bind:value={ticket.description}
+      class="form-control"
     ></textarea>
   </div>
-  
-  <fieldset class="mt-4">
-    <legend class="block text-sm font-medium text-default mb-1">
-      Status
-    </legend>
-    <div class="flex space-x-4">
-      {#each statusOptions as option}
-        <label class="inline-flex items-center">
-          <input
-            type="radio"
-            id={`status-${option}`}
-            bind:group={status}
-            value={option}
-            class="form-radio"
-          />
-          <span class="ml-2 text-text-blue-300">
-            {option.charAt(0).toUpperCase() + option.slice(1).replace('-', ' ')}
-          </span>
-        </label>
-      {/each}
-    </div>
-  </fieldset>
-  
-  <div class="flex justify-end space-x-3">
-    {#if props.onCancel}
-      <button
-        type="button"
-        onclick={props.onCancel}
-        class="btn btn-secondary"
-        disabled={isSubmitting}
-      >
-        Cancel
-      </button>
-    {/if}
+
+  <div class="form-section mt-6">
+    <h3 class="text-lg font-medium mb-4">Addons</h3>
     
-    <button
-      type="submit"
-      class="btn btn-primary"
-      disabled={isSubmitting}
-    >
-      {isSubmitting ? 'Saving...' : props.editTicket ? 'Update Ticket' : 'Create Ticket'}
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-3 mb-4">
+      <div class="form-group">
+        <label for="addonType" class="form-label">Type</label>
+        <select
+          id="addonType"
+          bind:value={selectedAddonType}
+          class="form-control"
+        >
+          <option value="">Select addon type</option>
+          {#each addonTypes as type}
+            <option value={type.name}>{type.name}</option>
+          {/each}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="addonAmount" class="form-label">Amount</label>
+        <input
+          type="number"
+          id="addonAmount"
+          bind:value={addonAmount}
+          class="form-control"
+          step="0.01"
+          min="0"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="addonDescription" class="form-label">Description</label>
+        <div class="flex gap-2">
+          <input
+            type="text"
+            id="addonDescription"
+            bind:value={addonDescription}
+            class="form-control"
+          />
+          <button
+            type="button"
+            class="btn btn-primary"
+            on:click={addAddon}
+            disabled={!selectedAddonType}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {#if addons.length > 0}
+      <div class="overflow-x-auto mt-4">
+        <table class="w-full">
+          <thead>
+            <tr>
+              <th class="text-left px-4 py-2 text-sm font-medium text-gray-500">Type</th>
+              <th class="text-left px-4 py-2 text-sm font-medium text-gray-500">Amount</th>
+              <th class="text-left px-4 py-2 text-sm font-medium text-gray-500">Description</th>
+              <th class="text-right px-4 py-2 text-sm font-medium text-gray-500">Action</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            {#each addons as addon}
+              <tr class="hover:bg-gray-50/50">
+                <td class="px-4 py-2">{addon.name}</td>
+                <td class="px-4 py-2">${addon.amount.toFixed(2)}</td>
+                <td class="px-4 py-2">{addon.description || '-'}</td>
+                <td class="px-4 py-2 text-right">
+                  <button
+                    type="button"
+                    class="btn btn-danger"
+                    on:click={() => removeAddon(addon.id)}
+                  >
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </div>
+
+  <div class="flex justify-end gap-4 mt-6">
+    <slot name="actions"></slot>
+    <button type="submit" class="btn btn-primary">
+      {ticket.id ? 'Update' : 'Create'} Ticket
     </button>
   </div>
 </form>

@@ -17,6 +17,15 @@ export default {
           900: '#0c4a6e',
           950: '#082f49',
         },
+      },
+      keyframes: {
+        'slide-in-from-bottom': {
+          '0%': { transform: 'translateY(20px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' }
+        }
+      },
+      animation: {
+        'slide-in-from-bottom-2': 'slide-in-from-bottom 0.2s ease-out',
       }
     }
   },

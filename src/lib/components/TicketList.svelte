@@ -1,155 +1,93 @@
 <script lang="ts">
-  import { ticketsWithClientInfo } from '$lib/stores/ticketStore';
-  import type { Ticket, Client } from '$lib/types';
   import { onMount } from 'svelte';
+  import { ticketStore } from '$lib/stores/ticketStore';
+  import { clientStore } from '$lib/stores/clientStore';
+  import type { Ticket } from '$lib/types';
+  import GlassCard from './GlassCard.svelte';
 
-  const props = $props<{
-    onEdit?: (ticket: Ticket) => void;
-    client?: Client | null;
-  }>();
+  export let clientId: string | undefined = undefined;
 
-  // Filter state
-  let searchTerm = $state('');
-  let statusFilter = $state<string>('all');
+  let tickets: Ticket[] = [];
 
-  // Status options
-  const statusOptions = [
-    { value: 'all', label: 'All Statuses' },
-    { value: 'open', label: 'Open' },
-    { value: 'in-progress', label: 'In Progress' },
-    { value: 'closed', label: 'Closed' }
-  ];
+  onMount(async () => {
+    await ticketStore.load();
+    await clientStore.load();
+    
+    tickets = $ticketStore.filter(ticket => 
+      clientId ? ticket.clientId === clientId : true
+    );
+  });
 
-  // Filtered tickets
-  const filteredTickets = $derived(
-    $ticketsWithClientInfo
-      .filter(ticket => {
-        // Client filtering
-        if (props.client && ticket.clientId !== props.client.id) {
-          return false;
-        }
-        
-        // Status filtering
-        if (statusFilter !== 'all' && ticket.status !== statusFilter) {
-          return false;
-        }
-        
-        // Search filtering
-        if (searchTerm) {
-          const search = searchTerm.toLowerCase();
-          return (
-            ticket.title.toLowerCase().includes(search) ||
-            (ticket.description?.toLowerCase().includes(search) || false) ||
-            ticket.clientName.toLowerCase().includes(search)
-          );
-        }
-        
-        return true;
-      })
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-  );
-
-  // Format date in a user-friendly way
-  function formatDate(date: Date | string): string {
-    return new Date(date).toLocaleDateString();
+  function getClientName(id: string) {
+    return $clientStore.find(c => c.id === id)?.name || 'Unknown Client';
   }
 
-  // Status badge classes
-  function getStatusBadgeClass(status: string): string {
-    switch (status) {
-      case 'open':
-        return 'badge badge-success';
-      case 'in-progress':
-        return 'badge badge-warning';
-      case 'closed':
-        return 'badge bg-gray-700 text-default';
-      default:
-        return 'badge badge-info';
-    }
+  function formatDate(date: Date) {
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    }).format(date);
   }
 </script>
 
-<div>
-  <!-- Filters -->
-  <div class="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-    <div>
-      <label for="search" class="sr-only">Search</label>
-      <div class="relative">
-        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <!-- Search icon (you can replace with an actual icon) -->
-          <span class="text-text-blue-300">🔍</span>
-        </div>
-        <input
-          id="search"
-          type="text"
-          bind:value={searchTerm}
-          placeholder="Search tickets..."
-          class="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-md bg-gray-800 text-default"
-        />
-      </div>
-    </div>
-    
-    <div>
-      <label for="status" class="sr-only">Filter by status</label>
-      <select
-        id="status"
-        bind:value={statusFilter}
-        class="w-full px-4 py-2 border border-gray-600 rounded-md bg-gray-800 text-default"
-      >
-        {#each statusOptions as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
-    </div>
-  </div>
-
-  <!-- Ticket list -->
-  {#if filteredTickets.length === 0}
-    <div class="light-glass p-8 text-center rounded-md">
-      <p class="text-text-blue-300">No tickets found matching your filters</p>
+<div class="space-y-4">
+  {#if tickets.length === 0}
+    <div class="text-center py-8 text-gray-500">
+      No tickets found
     </div>
   {:else}
-    <div class="overflow-x-auto">
-      <table>
-        <thead>
-          <tr>
-            <th>Title</th>
-            <th>Client</th>
-            <th>Status</th>
-            <th>Last Updated</th>
-            <th class="w-16">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each filteredTickets as ticket}
-            <tr class="hover:light-glass">
-              <td>
+    {#each tickets as ticket}
+      <GlassCard>
+        <div class="flex items-start justify-between">
+          <div class="space-y-2">
+            <div class="flex items-center space-x-3">
+              <span 
+                class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                style="background-color: {ticket.status.color}25; color: {ticket.status.color};"
+              >
+                {ticket.status.name}
+              </span>
+              <h3 class="text-lg font-medium">
                 <a 
-                  href={`/tickets/${ticket.id}`}
-                  class="text-accentBlue hover:text-accentPink"
+                  href="/tickets/{ticket.id}" 
+                  class="hover:text-blue-600"
                 >
                   {ticket.title}
                 </a>
-              </td>
-              <td>{ticket.clientName}</td>
-              <td>
-                <span class={getStatusBadgeClass(ticket.status)}>
-                  {ticket.status}
-                </span>
-              </td>
-              <td>{formatDate(ticket.updatedAt)}</td>
-              <td>
-                <button
-                  class="p-1 text-text-blue-300 hover:text-accentBlue"
-                  onclick={() => props.onEdit?.(ticket)}
-                >
-                  Edit
-                </button>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+              </h3>
+            </div>
+            {#if !clientId}
+              <p class="text-sm text-gray-600">
+                Client: {getClientName(ticket.clientId)}
+              </p>
+            {/if}
+            <p class="text-sm text-gray-500">
+              Created: {formatDate(ticket.createdAt)}
+            </p>
+            {#if ticket.addons && ticket.addons.length > 0}
+              <div class="mt-2">
+                <div class="text-sm font-medium text-gray-500">Addons:</div>
+                <div class="flex flex-wrap gap-2 mt-1">
+                  {#each ticket.addons as addon}
+                    <span class="inline-flex items-center px-2 py-1 rounded-md text-xs bg-gray-100 text-gray-800">
+                      {addon.name} (${addon.amount})
+                    </span>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </div>
+          <div class="flex space-x-2">
+            <a
+              href="/tickets/edit/{ticket.id}"
+              class="btn btn-secondary"
+            >
+              Edit
+            </a>
+          </div>
+        </div>
+      </GlassCard>
+    {/each}
   {/if}
 </div>

@@ -3,7 +3,6 @@
   import type { Client } from '$lib/types';
   import { clientStore } from '$lib/stores/clientStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
-  import { formatCurrency } from '$lib/utils/invoiceUtils';
   
   interface ClientWithStats extends Client {
     level: number;
@@ -27,25 +26,36 @@
     // Get root level clients (no parent)
     const rootClients = $clients.filter(c => !c.parentId);
     
-    // Recursively build hierarchy
-    function buildHierarchy(clients: Client[], level: number = 0): ClientWithStats[] {
-      return clients.flatMap(client => {
-        const children = $clients.filter(c => c.parentId === client.id);
-        const entries = timeEntryStore.getByClientId(client.id);
-        const totalHours = entries.reduce((sum, entry) => sum + entry.hours, 0);
-        const billableEntries = entries.filter(entry => entry.billable);
-        const billableHours = billableEntries.reduce((sum, entry) => sum + entry.hours, 0);
-        const unbilledEntries = billableEntries.filter(entry => !entry.billed);
-        const unbilledHours = unbilledEntries.reduce((sum, entry) => sum + entry.hours, 0);
+    function processClient(client: Client, level: number): ClientWithStats {
+      const clientTimeEntries = timeEntryStore.getByClientId(client.id);
+      const totalHours = clientTimeEntries.reduce((sum, e) => sum + e.hours, 0);
+      const billableHours = clientTimeEntries.filter(e => e.billable).reduce((sum, e) => sum + e.hours, 0);
+      const unbilledHours = clientTimeEntries.filter(e => e.billable && !e.billed).reduce((sum, e) => sum + e.hours, 0);
+      
+      return {
+        ...client,
+        level,
+        totalHours,
+        billableHours,
+        unbilledHours
+      };
+    }
+
+    function buildHierarchy(clients: Client[], parentId: string | null = null, level: number = 0): ClientWithStats[] {
+      const result: ClientWithStats[] = [];
+      
+      clients
+        .filter(c => c.parentId === parentId)
+        .forEach(client => {
+          const processedClient = processClient(client, level);
+          result.push(processedClient);
+          result.push(...buildHierarchy(clients, client.id, level + 1));
+        });
         
-        return [
-          { ...client, level, totalHours, billableHours, unbilledHours },
-          ...buildHierarchy(children, level + 1)
-        ];
-      });
+      return result;
     }
     
-    return buildHierarchy(rootClients);
+    return buildHierarchy($clients);
   });
   
   // Filter clients with hierarchy
@@ -55,8 +65,7 @@
     
     return $hierarchy.filter(client =>
       client.name.toLowerCase().includes(searchTerm) ||
-      client.type.toLowerCase().includes(searchTerm) ||
-      client.rate.toString().includes(searchTerm)
+      client.type.toLowerCase().includes(searchTerm)
     );
   });
   
@@ -93,20 +102,20 @@
   }
 </script>
 
-<div class="space-y-4">
-  <div class="flex justify-between items-center">
+<div class="space-y-3">
+  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
     <h2 class="text-xl font-semibold">Clients</h2>
     
-    <div class="relative">
+    <div class="relative w-full sm:w-auto min-w-[200px]">
       <input
         type="text"
         placeholder="Search clients..."
-        class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+        class="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         bind:value={$filter}
       />
       {#if $filter}
         <button 
-          class="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
+          class="absolute right-2 top-1.5 text-gray-500 hover:text-gray-700"
           onclick={() => filter.set('')}
         >
           ✕
@@ -115,45 +124,39 @@
     </div>
   </div>
   
-  <div class="bg-white rounded-lg shadow overflow-x-auto">
+  <div class="card-dense overflow-x-auto">
     <table class="min-w-full divide-y divide-gray-200">
-      <thead class="bg-gray-50">
+      <thead>
         <tr>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
             Client Name
           </th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
             Type
           </th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Hourly Rate
+          <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Hours
           </th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Total Hours
-          </th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Unbilled Hours
-          </th>
-          <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
             Actions
           </th>
         </tr>
       </thead>
       
-      <tbody class="bg-white divide-y divide-gray-200">
+      <tbody class="divide-y divide-gray-200">
         {#if $filteredClients.length === 0}
           <tr>
-            <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+            <td colspan="4" class="px-3 py-2 text-center text-gray-500">
               No clients found. Create a new client to get started.
             </td>
           </tr>
         {:else}
           {#each $filteredClients as client}
-            <tr class="hover:bg-gray-50">
-              <td class="px-6 py-4 whitespace-nowrap">
-                <div class="flex items-center">
+            <tr class="hover:bg-gray-50/50">
+              <td class="px-3 py-2 whitespace-nowrap">
+                <div class="flex items-center gap-2">
                   {#if client.level > 0}
-                    <div class="w-{client.level * 6} border-l-2 border-gray-300 h-6 mr-2"></div>
+                    <div class="w-{client.level * 4} border-l-2 border-gray-300 h-4"></div>
                   {/if}
                   <a 
                     href="/clients/{client.id}" 
@@ -161,26 +164,28 @@
                   >
                     {client.name}
                   </a>
+                  <!-- Show type badge on mobile -->
+                  <span class="sm:hidden inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium
+                    {client.type === 'business' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
+                    {client.type.charAt(0).toUpperCase()}
+                  </span>
                 </div>
               </td>
-              <td class="px-6 py-4 whitespace-nowrap">
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+              <td class="px-3 py-2 whitespace-nowrap hidden sm:table-cell">
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium
                   {client.type === 'business' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
                   {client.type.charAt(0).toUpperCase() + client.type.slice(1)}
                 </span>
               </td>
-              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {formatCurrency(client.rate)}
+              <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+                <div class="flex flex-col sm:flex-row gap-1 sm:gap-2">
+                  <span title="Total Hours">{client.totalHours.toFixed(1)}</span>
+                  <span class="text-blue-600" title="Unbilled Hours">({client.unbilledHours.toFixed(1)})</span>
+                </div>
               </td>
-              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {client.totalHours.toFixed(2)}
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                {client.unbilledHours.toFixed(2)}
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+              <td class="px-3 py-2 whitespace-nowrap text-right text-sm font-medium">
                 <button 
-                  class="text-blue-600 hover:text-blue-900 mr-3"
+                  class="text-blue-600 hover:text-blue-900 mr-2"
                   onclick={() => handleEdit(client)}
                 >
                   Edit

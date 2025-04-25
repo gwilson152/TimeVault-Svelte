@@ -4,52 +4,14 @@
     {
       "type": "node",
       "request": "launch",
-      "name": "Debug Server",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "--experimental-specifier-resolution=node",
-        "--loader",
-        "ts-node/esm"
-      ],
-      "program": "${workspaceFolder}/src/server/index.ts",
-      "skipFiles": [
-        "<node_internals>/**"
-      ],
-      "outFiles": [
-        "${workspaceFolder}/dist/**/*.js"
-      ],
-      "env": {
-        "NODE_ENV": "development"
-      },
-      "console": "integratedTerminal"
-    },
-    {
-      "type": "chrome",
-      "request": "launch",
-      "name": "Debug Client",
-      "url": "http://localhost:5173",
-      "webRoot": "${workspaceFolder}",
-      "sourceMaps": true,
-      "sourceMapPathOverrides": {
-        "webpack:///./src/*": "${webRoot}/src/*"
-      }
-    },
-    {
-      "type": "node",
-      "request": "launch",
-      "name": "Debug Full Stack",
+      "name": "npm run dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:full"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "console": "integratedTerminal",
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
-    }
-  ],
-  "compounds": [
-    {
-      "name": "Debug Server + Client",
-      "configurations": ["Debug Server", "Debug Client"]
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

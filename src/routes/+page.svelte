@@ -1,111 +1,158 @@
 <script lang="ts">
-  import TimeEntryForm from '$lib/components/TimeEntryForm.svelte';
-  import TimeEntryList from '$lib/components/TimeEntryList.svelte';
-  import type { TimeEntry } from '$lib/types';
-  import { superForm } from 'sveltekit-superforms/client';
-  import type { PageData } from './$types';
+  import { timeEntryStore, entriesWithClientInfo } from '$lib/stores/timeEntryStore';
   import { clientStore } from '$lib/stores/clientStore';
-  import { timeEntryStore } from '$lib/stores/timeEntryStore';
+  import { ticketStore } from '$lib/stores/ticketStore';
+  import { formatCurrency, formatHours } from '$lib/utils/invoiceUtils';
   import { onMount } from 'svelte';
 
-  const { data } = $props<{ data: PageData }>();
+  // Calculate dashboard metrics
+  $: totalUnbilledHours = $entriesWithClientInfo
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .filter(entry => !entry.billed && entry.billable)
+    .reduce((sum, entry) => sum + entry.hours, 0);
 
-  let showForm = $state(false);
-  let editEntry = $state<TimeEntry | null>(null);
-  let superFormData = $state(superForm(data.form));
-  
-  // Calculate total hours
-  const totalHours = $derived(
-    $timeEntryStore.reduce((sum, entry) => sum + entry.hours, 0)
-  );
+  $: totalUnbilledAmount = $entriesWithClientInfo
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .filter(entry => !entry.billed && entry.billable)
+    .reduce((sum, entry) => {
+      const client = $clientStore.find(c => c.id === entry.clientId);
+      if (!client) return sum;
 
-  // Load data when component mounts
-  onMount(async () => {
-    await Promise.all([
-      timeEntryStore.load(),
-      clientStore.load()
-    ]);
+      // Get the applicable rate from overrides
+      let rate = 0;
+      if (client.billingRateOverrides.length > 0) {
+        const override = client.billingRateOverrides[0]; // Use first override as default
+        rate = override.value;
+      }
+
+      return sum + (entry.hours * rate);
+    }, 0);
+
+  $: activeClients = $clientStore.filter(client => {
+    const hasUnbilledWork = $entriesWithClientInfo
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .some(entry => entry.clientId === client.id && !entry.billed && entry.billable);
+    return hasUnbilledWork;
   });
 
-  // Handle create new entry
-  function handleCreateEntry() {
-    editEntry = null;
-    showForm = true;
-    // Scroll to form
-    setTimeout(() => {
-      document.getElementById('entry-form')?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-  }
+  $: openTickets = $ticketStore.filter(ticket => !ticket.status?.isClosed);
 
-  // Handle edit button click from the list
-  function handleEdit(entry: TimeEntry) {
-    editEntry = entry;
-    showForm = true;
-    // Scroll to form
-    setTimeout(() => {
-      document.getElementById('entry-form')?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-  }
+  $: recentEntries = [...$entriesWithClientInfo]
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
 
-  // Handle save completion
-  function handleSave() {
-    editEntry = null;
-    showForm = false;
-  }
+  $: clientsByUnbilledAmount = [...activeClients]
+    .map(client => {
+      const unbilledAmount = $entriesWithClientInfo
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+        .filter(entry => entry.clientId === client.id && !entry.billed && entry.billable)
+        .reduce((sum, entry) => {
+          const override = client.billingRateOverrides[0];
+          const rate = override ? override.value : 0;
+          return sum + (entry.hours * rate);
+        }, 0);
 
-  // Handle cancel edit
-  function handleCancel() {
-    editEntry = null;
-    showForm = false;
-  }
+      return {
+        ...client,
+        unbilledAmount
+      };
+    })
+    .sort((a, b) => b.unbilledAmount - a.unbilledAmount);
 </script>
 
-<div class="container mx-auto px-4">
-  <section class="mb-8">
-    <h1 class="text-3xl font-bold mb-6">Dashboard</h1>
-    
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div class="card-glass">
-        <h3 class="text-xl font-semibold mb-3">Time Entries</h3>
-        <div class="text-4xl font-bold mb-2">{$timeEntryStore.length}</div>
-        <p class="text-text-blue-300">Total entries tracked</p>
-      </div>
-      
-      <div class="card-glass">
-        <h3 class="text-xl font-semibold mb-3">Clients</h3>
-        <div class="text-4xl font-bold mb-2">{$clientStore.length}</div>
-        <p class="text-text-blue-300">Active clients</p>
-      </div>
-      
-      <div class="card-glass">
-        <h3 class="text-xl font-semibold mb-3">Hours Tracked</h3>
-        <div class="text-4xl font-bold mb-2">{totalHours.toFixed(1)}</div>
-        <p class="text-text-blue-300">Total hours logged</p>
-      </div>
-    </div>
-  </section>
+<div class="space-y-6">
+  <h1 class="text-2xl font-bold">Dashboard</h1>
 
-  <section>
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-2xl font-semibold">Recent Time Entries</h2>
-      <button class="btn btn-primary" onclick={handleCreateEntry}>
-        New Entry
-      </button>
+  <!-- Key Metrics -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="card-dense">
+      <h3 class="text-lg font-semibold mb-1">Unbilled Hours</h3>
+      <p class="text-3xl font-bold">{totalUnbilledHours.toFixed(1)}</p>
     </div>
-    
-    {#if showForm}
-      <div class="card-glass mb-6" id="entry-form">
-        <TimeEntryForm 
-          form={superFormData}
-          editEntry={editEntry}
-          onSave={handleSave}
-          onCancel={handleCancel}
-        />
+    <div class="card-dense">
+      <h3 class="text-lg font-semibold mb-1">Unbilled Amount</h3>
+      <p class="text-3xl font-bold">{formatCurrency(totalUnbilledAmount)}</p>
+    </div>
+    <div class="card-dense">
+      <h3 class="text-lg font-semibold mb-1">Active Clients</h3>
+      <p class="text-3xl font-bold">{activeClients.length}</p>
+    </div>
+    <div class="card-dense">
+      <h3 class="text-lg font-semibold mb-1">Open Tickets</h3>
+      <p class="text-3xl font-bold">{openTickets.length}</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Recent Time Entries -->
+    <div class="card-dense">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-semibold">Recent Time Entries</h2>
+        <a href="/time-entries" class="text-blue-600 hover:text-blue-800">View All</a>
       </div>
-    {/if}
-    
-    <div class="card-glass">
-      <TimeEntryList onEdit={handleEdit} />
+      <div class="overflow-x-auto">
+        <table class="min-w-full">
+          <thead>
+            <tr>
+              <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+              <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+              <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Hours</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            {#each recentEntries as entry}
+              <tr class="hover:bg-gray-50/50">
+                <td class="px-3 py-2 whitespace-nowrap text-sm">
+                  {new Date(entry.date).toLocaleDateString()}
+                </td>
+                <td class="px-3 py-2 text-sm">
+                  <div>{entry.description}</div>
+                  <div class="text-xs text-gray-500">{entry.clientName}</div>
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap text-sm text-right">
+                  {entry.hours.toFixed(1)}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     </div>
-  </section>
+
+    <!-- Top Clients by Unbilled Amount -->
+    <div class="card-dense">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-semibold">Top Clients by Unbilled Work</h2>
+        <a href="/clients" class="text-blue-600 hover:text-blue-800">View All</a>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full">
+          <thead>
+            <tr>
+              <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+              <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unbilled</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200">
+            {#each clientsByUnbilledAmount as client}
+              <tr class="hover:bg-gray-50/50">
+                <td class="px-3 py-2 whitespace-nowrap">
+                  <a 
+                    href="/clients/{client.id}" 
+                    class="text-blue-600 hover:text-blue-800"
+                  >
+                    {client.name}
+                  </a>
+                </td>
+                <td class="px-3 py-2 whitespace-nowrap text-right">
+                  {formatCurrency(client.unbilledAmount)}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 </div>
