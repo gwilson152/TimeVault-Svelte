@@ -4,25 +4,60 @@ import * as api from '$lib/services/api';
 import { clientStore } from './clientStore';
 
 function createTimeEntryStore() {
-  const { subscribe, set, update } = writable<TimeEntry[]>([]);
+  const store = writable<TimeEntry[]>([]);
+  let initialized = false;
+
+  const { subscribe, set, update } = store;
 
   return {
     subscribe,
     
     async load() {
+      if (initialized) {
+        console.log('Time entries already loaded, skipping');
+        return;
+      }
+      
       try {
+        console.log('Loading time entries...');
         const entries = await api.getTimeEntries();
-        set(entries);
+        console.log(`Loaded ${entries.length} time entries:`, entries);
+        
+        // Ensure entries have proper Date objects
+        const processedEntries = entries.map(entry => ({
+          ...entry,
+          date: new Date(entry.date),
+          createdAt: new Date(entry.createdAt),
+          updatedAt: new Date(entry.updatedAt)
+        }));
+        
+        set(processedEntries);
+        initialized = true;
       } catch (error) {
         console.error('Failed to load time entries:', error);
+        throw error;
       }
     },
     
     async add(newEntry: NewTimeEntry) {
       try {
+        console.log('Adding new time entry:', newEntry);
         const entry = await api.createTimeEntry(newEntry);
-        update(entries => [...entries, entry]);
-        return entry;
+        
+        // Ensure dates are proper Date objects
+        const processedEntry = {
+          ...entry,
+          date: new Date(entry.date),
+          createdAt: new Date(entry.createdAt),
+          updatedAt: new Date(entry.updatedAt)
+        };
+        
+        update(entries => {
+          const updated = [...entries, processedEntry];
+          console.log('Store updated with new entry:', updated);
+          return updated;
+        });
+        return processedEntry;
       } catch (error) {
         console.error('Failed to add time entry:', error);
         throw error;
@@ -72,7 +107,6 @@ function createTimeEntryStore() {
     
     async markAsBilled(entryIds: string[]) {
       try {
-        // The API handles marking entries as billed during invoice generation
         update(entries => 
           entries.map(entry => 
             entryIds.includes(entry.id) 
@@ -94,7 +128,7 @@ export const timeEntryStore = createTimeEntryStore();
 export const entriesWithClientInfo = derived(
   [timeEntryStore, clientStore],
   ([$timeEntryStore, $clientStore]) => {
-    return $timeEntryStore.map(entry => {
+    const entriesWithInfo = $timeEntryStore.map(entry => {
       const client = entry.clientId 
         ? $clientStore.find(c => c.id === entry.clientId) 
         : null;
@@ -105,5 +139,13 @@ export const entriesWithClientInfo = derived(
         clientRate: client?.rate || null
       };
     });
+
+    console.log('Updated entriesWithClientInfo:', {
+      timeEntries: $timeEntryStore.length,
+      clients: $clientStore.length,
+      derivedEntries: entriesWithInfo.length
+    });
+
+    return entriesWithInfo;
   }
 );

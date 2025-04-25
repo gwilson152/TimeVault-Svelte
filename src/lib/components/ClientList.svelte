@@ -5,43 +5,60 @@
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
   import { formatCurrency } from '$lib/utils/invoiceUtils';
   
-  // Props
-  const onEdit = $props<((client: Client) => void) | null>();
+  interface ClientWithStats extends Client {
+    level: number;
+    totalHours: number;
+    billableHours: number;
+    unbilledHours: number;
+  }
+
+  // Props using runes syntax
+  const props = $props<{
+    onEdit: ((client: Client) => void) | null;
+  }>();
   
   // State
   let sortField = writable<keyof Client>('name');
   let sortDirection = writable<'asc' | 'desc'>('asc');
   let filter = writable('');
   
-  // Filter clients
-  const filteredClients = derived([clientStore, filter], ([$clientStore, $filter]) => {
-    const searchTerm = $filter.toLowerCase();
-    if (!searchTerm) return $clientStore;
+  // Client hierarchy store
+  const clientHierarchy = derived(clientStore, ($clients) => {
+    // Get root level clients (no parent)
+    const rootClients = $clients.filter(c => !c.parentId);
     
-    return $clientStore.filter(client =>
+    // Recursively build hierarchy
+    function buildHierarchy(clients: Client[], level: number = 0): ClientWithStats[] {
+      return clients.flatMap(client => {
+        const children = $clients.filter(c => c.parentId === client.id);
+        const entries = timeEntryStore.getByClientId(client.id);
+        const totalHours = entries.reduce((sum, entry) => sum + entry.hours, 0);
+        const billableEntries = entries.filter(entry => entry.billable);
+        const billableHours = billableEntries.reduce((sum, entry) => sum + entry.hours, 0);
+        const unbilledEntries = billableEntries.filter(entry => !entry.billed);
+        const unbilledHours = unbilledEntries.reduce((sum, entry) => sum + entry.hours, 0);
+        
+        return [
+          { ...client, level, totalHours, billableHours, unbilledHours },
+          ...buildHierarchy(children, level + 1)
+        ];
+      });
+    }
+    
+    return buildHierarchy(rootClients);
+  });
+  
+  // Filter clients with hierarchy
+  const filteredClients = derived([clientHierarchy, filter], ([$hierarchy, $filter]) => {
+    const searchTerm = $filter.toLowerCase();
+    if (!searchTerm) return $hierarchy;
+    
+    return $hierarchy.filter(client =>
       client.name.toLowerCase().includes(searchTerm) ||
+      client.type.toLowerCase().includes(searchTerm) ||
       client.rate.toString().includes(searchTerm)
     );
   });
-  
-  // Calculate stats for each client
-  const clientStats = derived(filteredClients, $filteredClients =>
-    $filteredClients.map((client: Client) => {
-      const entries = timeEntryStore.getByClientId(client.id);
-      const totalHours = entries.reduce((sum, entry) => sum + entry.hours, 0);
-      const billableEntries = entries.filter(entry => entry.billable);
-      const billableHours = billableEntries.reduce((sum, entry) => sum + entry.hours, 0);
-      const unbilledEntries = billableEntries.filter(entry => !entry.billed);
-      const unbilledHours = unbilledEntries.reduce((sum, entry) => sum + entry.hours, 0);
-      
-      return {
-        ...client,
-        totalHours,
-        billableHours,
-        unbilledHours
-      };
-    })
-  );
   
   // Toggle sort direction or change sort field
   function handleSort(field: keyof Client) {
@@ -55,8 +72,8 @@
   
   // Handle edit button click
   function handleEdit(client: Client) {
-    if (onEdit) {
-      onEdit(client);
+    if (props.onEdit) {
+      props.onEdit(client);
     }
   }
   
@@ -102,23 +119,14 @@
     <table class="min-w-full divide-y divide-gray-200">
       <thead class="bg-gray-50">
         <tr>
-          <th 
-            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-            onclick={() => handleSort('name')}
-          >
+          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
             Client Name
-            {#if $sortField === 'name'}
-              {$sortDirection === 'asc' ? '↑' : '↓'}
-            {/if}
           </th>
-          <th 
-            class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-            onclick={() => handleSort('rate')}
-          >
+          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Type
+          </th>
+          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
             Hourly Rate
-            {#if $sortField === 'rate'}
-              {$sortDirection === 'asc' ? '↑' : '↓'}
-            {/if}
           </th>
           <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
             Total Hours
@@ -133,17 +141,33 @@
       </thead>
       
       <tbody class="bg-white divide-y divide-gray-200">
-        {#if $clientStats.length === 0}
+        {#if $filteredClients.length === 0}
           <tr>
-            <td colspan="5" class="px-6 py-4 text-center text-gray-500">
+            <td colspan="6" class="px-6 py-4 text-center text-gray-500">
               No clients found. Create a new client to get started.
             </td>
           </tr>
         {:else}
-          {#each $clientStats as client}
+          {#each $filteredClients as client}
             <tr class="hover:bg-gray-50">
-              <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                {client.name}
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="flex items-center">
+                  {#if client.level > 0}
+                    <div class="w-{client.level * 6} border-l-2 border-gray-300 h-6 mr-2"></div>
+                  {/if}
+                  <a 
+                    href="/clients/{client.id}" 
+                    class="text-blue-600 hover:text-blue-900"
+                  >
+                    {client.name}
+                  </a>
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                  {client.type === 'business' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
+                  {client.type.charAt(0).toUpperCase() + client.type.slice(1)}
+                </span>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                 {formatCurrency(client.rate)}

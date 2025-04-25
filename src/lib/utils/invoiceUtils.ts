@@ -54,8 +54,15 @@ export function formatCurrency(amount: number): string {
 }
 
 /**
- * Format hours
+ * Format hours as hours and minutes
  */
 export function formatHours(hours: number): string {
-  return hours.toFixed(2);
+  const totalMinutes = Math.round(hours * 60);
+  const hrs = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
+  
+  if (hrs > 0) {
+    return `${hrs}h ${mins}m`;
+  }
+  return `${mins}m`;
 }

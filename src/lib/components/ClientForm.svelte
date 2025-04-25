@@ -1,9 +1,8 @@
 <script lang="ts">
   import { writable } from 'svelte/store';
-  import type { Client, NewClient } from '$lib/types';
+  import type { Client, NewClient, ClientType } from '$lib/types';
   import { clientStore } from '$lib/stores/clientStore';
   
-  // Props using runes syntax
   const props = $props<{
     editClient: Client | null;
     onSave: ((client: Client) => void) | null;
@@ -13,26 +12,42 @@
   // Initialize form state
   const initialState: NewClient = {
     name: '',
-    rate: 0
+    rate: 0,
+    type: 'business',
+    parentId: null
   };
 
-  // Create reactive state
   let form = writable<NewClient>(initialState);
   
-  // Update form when editing an existing client
   $effect(() => {
     if (props.editClient) {
       form.set({
         name: props.editClient.name,
-        rate: props.editClient.rate
+        rate: props.editClient.rate,
+        type: props.editClient.type,
+        parentId: props.editClient.parentId
       });
     } else {
       form.set(initialState);
     }
   });
+
+  // Get potential parent clients (avoid circular references)
+  const availableParents = $derived($clientStore.filter(c => {
+    if (!props.editClient) return true;
+    // Can't select self or any descendants as parent
+    const isDescendant = (parentId: string | null): boolean => {
+      if (!parentId) return false;
+      if (parentId === props.editClient?.id) return true;
+      const parent = $clientStore.find(c => c.id === parentId);
+      return parent ? isDescendant(parent.parentId) : false;
+    };
+    return c.id !== props.editClient.id && !isDescendant(c.id);
+  }));
   
-  function handleSubmit() {
-    // Basic validation
+  async function handleSubmit(e: SubmitEvent) {
+    e.preventDefault();
+    
     if (!$form.name) {
       alert('Please enter a client name');
       return;
@@ -45,21 +60,21 @@
     
     let result: Client;
     
-    if (props.editClient) {
-      // Update existing client
-      clientStore.update(props.editClient.id, $form);
-      result = { ...props.editClient, ...$form };
-    } else {
-      // Add new client
-      result = clientStore.add($form);
-    }
-    
-    // Reset form after submission
-    form.set(initialState);
-    
-    // Call callback if provided
-    if (props.onSave) {
-      props.onSave(result);
+    try {
+      if (props.editClient) {
+        result = await clientStore.update(props.editClient.id, $form);
+      } else {
+        result = await clientStore.add($form);
+      }
+      
+      form.set(initialState);
+      
+      if (props.onSave) {
+        props.onSave(result);
+      }
+    } catch (err) {
+      console.error('Failed to save client:', err);
+      alert('Failed to save client. Please try again.');
     }
   }
   
@@ -73,6 +88,8 @@
   function updateField(field: keyof NewClient, value: any) {
     form.update(f => ({ ...f, [field]: value }));
   }
+
+  const clientTypes: ClientType[] = ['business', 'individual'];
 </script>
 
 <div class="bg-white p-6 rounded-lg shadow-md">
@@ -80,33 +97,71 @@
     {props.editClient ? 'Edit Client' : 'Add New Client'}
   </h3>
   
-  <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="space-y-4">
-    <div>
-      <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
-        Client Name
-      </label>
-      <input
-        id="name"
-        type="text"
-        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-        value={$form.name}
-        oninput={(e) => updateField('name', e.currentTarget.value)}
-      />
-    </div>
-    
-    <div>
-      <label for="rate" class="block text-sm font-medium text-gray-700 mb-1">
-        Hourly Rate
-      </label>
-      <input
-        id="rate"
-        type="number"
-        min="0"
-        step="0.01"
-        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-        value={$form.rate}
-        oninput={(e) => updateField('rate', parseFloat(e.currentTarget.value) || 0)}
-      />
+  <form onsubmit={handleSubmit} class="space-y-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+          Client Name
+        </label>
+        <input
+          id="name"
+          type="text"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={$form.name}
+          oninput={(e) => updateField('name', e.currentTarget.value)}
+        />
+      </div>
+      
+      <div>
+        <label for="rate" class="block text-sm font-medium text-gray-700 mb-1">
+          Hourly Rate
+        </label>
+        <input
+          id="rate"
+          type="number"
+          min="0"
+          step="0.01"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={$form.rate}
+          oninput={(e) => updateField('rate', parseFloat(e.currentTarget.value) || 0)}
+        />
+      </div>
+
+      <div>
+        <label for="type" class="block text-sm font-medium text-gray-700 mb-1">
+          Client Type
+        </label>
+        <select
+          id="type"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          bind:value={$form.type}
+        >
+          {#each clientTypes as type}
+            <option value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
+          {/each}
+        </select>
+      </div>
+
+      <div>
+        <label for="parentId" class="block text-sm font-medium text-gray-700 mb-1">
+          Parent Client
+        </label>
+        <select
+          id="parentId"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          bind:value={$form.parentId}
+        >
+          <option value="">No Parent</option>
+          {#each availableParents as parent}
+            <option value={parent.id}>
+              {parent.name} ({parent.type})
+            </option>
+          {/each}
+        </select>
+        <p class="text-sm text-gray-500 mt-1">
+          Select a parent client to create a hierarchy
+        </p>
+      </div>
     </div>
     
     <div class="flex justify-end space-x-3 pt-2">

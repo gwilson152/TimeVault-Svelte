@@ -1,4 +1,4 @@
-import type { Client, NewClient, TimeEntry, NewTimeEntry, Invoice } from '$lib/types';
+import type { Client, NewClient, TimeEntry, NewTimeEntry, Invoice, Ticket, NewTicket } from '$lib/types';
 
 const API_URL = import.meta.env.PUBLIC_API_URL || 'http://localhost:5600/api';
 
@@ -79,4 +79,49 @@ export async function generateInvoice(clientId: string, entries: TimeEntry[]): P
   });
   if (!response.ok) throw new Error('Failed to generate invoice');
   return response.json();
+}
+
+// Ticket API calls
+export async function getTickets(): Promise<Ticket[]> {
+  const response = await fetch(`${API_URL}/tickets`);
+  const data = await response.json();
+  return data.map((ticket: any) => ({
+    ...ticket,
+    createdAt: new Date(ticket.createdAt),
+    updatedAt: new Date(ticket.updatedAt)
+  }));
+}
+
+export async function createTicket(ticket: NewTicket): Promise<Ticket> {
+  const response = await fetch(`${API_URL}/tickets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ticket)
+  });
+  const data = await response.json();
+  return {
+    ...data,
+    createdAt: new Date(data.createdAt),
+    updatedAt: new Date(data.updatedAt)
+  };
+}
+
+export async function updateTicket(id: string, ticket: Partial<Ticket>): Promise<Ticket> {
+  const response = await fetch(`${API_URL}/tickets/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(ticket)
+  });
+  const data = await response.json();
+  return {
+    ...data,
+    createdAt: new Date(data.createdAt),
+    updatedAt: new Date(data.updatedAt)
+  };
+}
+
+export async function deleteTicket(id: string): Promise<void> {
+  await fetch(`${API_URL}/tickets/${id}`, {
+    method: 'DELETE'
+  });
 }

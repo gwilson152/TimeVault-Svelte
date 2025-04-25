@@ -17,12 +17,18 @@ model Client {
   id          String      @id @default(uuid())
   name        String
   rate        Float
+  type        String      @default("business") // "business" | "individual"
+  parentId    String?
+  parent      Client?     @relation("ClientHierarchy", fields: [parentId], references: [id])
+  children    Client[]    @relation("ClientHierarchy")
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   timeEntries TimeEntry[]
   invoices    Invoice[]
+  tickets     Ticket[]
 
   @@map("clients")
+  @@index([parentId])
 }
 
 model TimeEntry {
@@ -38,8 +44,11 @@ model TimeEntry {
   client      Client?   @relation(fields: [clientId], references: [id])
   invoice     Invoice?  @relation(fields: [invoiceId], references: [id])
   invoiceId   String?
+  ticketId    String?
+  ticket      Ticket?   @relation(fields: [ticketId], references: [id])
 
   @@map("time_entries")
+  @@index([ticketId])
 }
 
 model Invoice {
@@ -52,4 +61,18 @@ model Invoice {
   entries     TimeEntry[]
 
   @@map("invoices")
+}
+
+model Ticket {
+  id          String      @id @default(cuid())
+  title       String
+  description String?
+  status      String      @default("open") // 'open' | 'in-progress' | 'closed'
+  clientId    String
+  client      Client      @relation(fields: [clientId], references: [id])
+  timeEntries TimeEntry[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([clientId])
 }
