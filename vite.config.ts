@@ -11,6 +11,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: parseInt(env.PUBLIC_CLIENT_PORT || '2100'),
+      host: env.PUBLIC_CLIENT_HOST || 'localhost',
+      allowedHosts: true,
       strictPort: true
     }
   };

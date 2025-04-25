@@ -1,5 +1,6 @@
 <script lang="ts">
   import { writable, derived } from 'svelte/store';
+  import { onMount } from 'svelte';
   import type { Invoice, Client } from '$lib/types';
   import { clientStore } from '$lib/stores/clientStore';
   import { timeEntryStore, entriesWithClientInfo } from '$lib/stores/timeEntryStore';
@@ -12,6 +13,7 @@
   let currentInvoice = writable<Invoice | null>(null);
   let showConfirmation = writable<boolean>(false);
   let previewMode = writable<boolean>(false);
+  let isLoading = writable<boolean>(true);
   
   // Format current date for invoice
   const today = new Date();
@@ -21,6 +23,21 @@
   let allClientsArray: Client[] = [];
   clientStore.subscribe(clients => {
     allClientsArray = clients;
+  });
+  
+  // Load data when component mounts
+  onMount(async () => {
+    isLoading.set(true);
+    try {
+      await Promise.all([
+        clientStore.load(),
+        timeEntryStore.load()
+      ]);
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    } finally {
+      isLoading.set(false);
+    }
   });
   
   // Get client hierarchy for the selected client
@@ -161,7 +178,11 @@
 <div class="space-y-8">
   <h2 class="text-2xl font-semibold">Generate Invoice</h2>
   
-  {#if $showConfirmation}
+  {#if $isLoading}
+    <div class="text-center py-8 card-glass">
+      <p>Loading client data...</p>
+    </div>
+  {:else if $showConfirmation}
     <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4">
       <span class="block sm:inline">Invoice generated successfully! The time entries have been marked as billed.</span>
     </div>

@@ -1,6 +1,6 @@
 import type { Client, NewClient, TimeEntry, NewTimeEntry, Invoice, Ticket, NewTicket } from '$lib/types';
 
-const API_URL = import.meta.env.PUBLIC_API_URL || 'http://localhost:5600/api';
+const API_URL = import.meta.env.PUBLIC_API_URL || 'https://api.timevault.drivenw.com/api';
 
 // Client API calls
 export async function getClients(): Promise<Client[]> {
@@ -71,6 +71,17 @@ export async function deleteTimeEntry(id: string): Promise<void> {
 }
 
 // Invoice API calls
+export async function getInvoices(clientId?: string): Promise<Invoice[]> {
+  const url = clientId ? `${API_URL}/invoices?clientId=${clientId}` : `${API_URL}/invoices`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Failed to fetch invoices');
+  const data = await response.json();
+  return data.map((invoice: any) => ({
+    ...invoice,
+    date: new Date(invoice.date)
+  }));
+}
+
 export async function generateInvoice(clientId: string, entries: TimeEntry[]): Promise<Invoice> {
   const response = await fetch(`${API_URL}/invoices`, {
     method: 'POST',

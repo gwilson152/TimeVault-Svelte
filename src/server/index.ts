@@ -166,6 +166,29 @@ app.delete('/api/time-entries/:id', async (req: Request, res: Response) => {
 });
 
 // Invoice routes
+app.get('/api/invoices', async (req: Request, res: Response) => {
+  try {
+    const { clientId } = req.query;
+    
+    const where = clientId ? { clientId: clientId as string } : {};
+    
+    const invoices = await prisma.invoice.findMany({
+      where,
+      include: {
+        client: true,
+        entries: true
+      },
+      orderBy: { date: 'desc' }
+    });
+    
+    res.json(invoices);
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.error('Failed to fetch invoices:', error);
+    res.status(500).json({ error: 'Failed to fetch invoices' });
+  }
+});
+
 app.post('/api/invoices', async (req: Request, res: Response) => {
   try {
     const { clientId, entries } = req.body;
