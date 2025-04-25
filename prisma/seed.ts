@@ -154,24 +154,28 @@ async function main() {
     {
       name: 'Standard Hourly',
       rate: 90,
+      cost: 50,
       description: 'Standard hourly billing rate',
       isDefault: true
     },
     {
       name: 'Critical Hourly',
       rate: 130,
+      cost: 65,
       description: 'Urgent/critical issue billing rate',
       isDefault: false
     },
     {
       name: 'Maintenance',
       rate: 75,
+      cost: 45,
       description: 'Regular maintenance work',
       isDefault: false
     },
     {
       name: 'Project',
       rate: 100,
+      cost: 55,
       description: 'Project-based work',
       isDefault: false
     }

@@ -1,59 +1,99 @@
 import { writable, derived } from 'svelte/store';
-import type { TimeEntry } from '$lib/types';
-import { get, post, put, del } from '$lib/services/api';
+import type { TimeEntry, NewTimeEntry } from '$lib/types';
+import * as api from '$lib/services/api';
 import { clientStore } from './clientStore';
 import { settingsStore } from './settingsStore';
+import { formattedToHours, minutesToHours, hoursToMinutes, hoursToFormatted } from '$lib/utils/timeUtils';
 
 function createTimeEntryStore() {
   const { subscribe, set, update } = writable<TimeEntry[]>([]);
-  const { subscribe: subscribeToLoading, set: setLoading } = writable(false);
   let initialized = false;
+
+  function formatTimeEntry(entry: TimeEntry): TimeEntry {
+    return {
+      ...entry,
+      minutes: hoursToMinutes(entry.hours),
+      timeFormatted: hoursToFormatted(entry.hours)
+    };
+  }
 
   return {
     subscribe,
-    loading: { subscribe: subscribeToLoading },
     
-    async load(force = false) {
-      if (initialized && !force) return;
+    async load() {
+      if (initialized) return;
       
       try {
-        setLoading(true);
-        const entries = await get<TimeEntry[]>('/time-entries');
-        set(entries || []);
+        const entries = await api.getTimeEntries();
+        set(entries.map(formatTimeEntry));
         initialized = true;
       } catch (error) {
         console.error('Failed to load time entries:', error);
-        set([]);
-      } finally {
-        setLoading(false);
+        set([]); // Set empty array on error
+        throw error;
       }
     },
-
-    async add(entry: Omit<TimeEntry, 'id' | 'billed' | 'invoiceId' | 'createdAt' | 'updatedAt'>) {
+    
+    async add(entry: NewTimeEntry) {
       try {
-        const newEntry = await post<TimeEntry>('/time-entries', entry);
-        update(entries => [...entries, newEntry]);
+        // Convert time to hours based on provided format
+        let hours = entry.hours;
+        if (entry.minutes !== undefined) {
+          hours = minutesToHours(entry.minutes);
+        } else if (entry.timeFormatted) {
+          const converted = formattedToHours(entry.timeFormatted);
+          if (converted === null) {
+            throw new Error('Invalid time format');
+          }
+          hours = converted;
+        }
+
+        const newEntry = await api.createTimeEntry({
+          ...entry,
+          hours
+        });
+        
+        update(entries => [...entries, formatTimeEntry(newEntry)]);
         return newEntry;
       } catch (error) {
         console.error('Failed to add time entry:', error);
         throw error;
       }
     },
-
-    async update(id: string, entry: Partial<TimeEntry>) {
+    
+    async update(id: string, entry: Partial<NewTimeEntry>) {
       try {
-        const updatedEntry = await put<TimeEntry>(`/time-entries/${id}`, entry);
-        update(entries => entries.map(e => e.id === id ? updatedEntry : e));
+        // Convert time if provided
+        let hours = entry.hours;
+        if (entry.minutes !== undefined) {
+          hours = minutesToHours(entry.minutes);
+        } else if (entry.timeFormatted) {
+          const converted = formattedToHours(entry.timeFormatted);
+          if (converted === null) {
+            throw new Error('Invalid time format');
+          }
+          hours = converted;
+        }
+
+        const updatedEntry = await api.updateTimeEntry(id, {
+          ...entry,
+          hours
+        });
+        
+        update(entries => entries.map(e => 
+          e.id === id ? formatTimeEntry(updatedEntry) : e
+        ));
+        
         return updatedEntry;
       } catch (error) {
         console.error('Failed to update time entry:', error);
         throw error;
       }
     },
-
+    
     async remove(id: string) {
       try {
-        await del(`/time-entries/${id}`);
+        await api.deleteTimeEntry(id);
         update(entries => entries.filter(e => e.id !== id));
       } catch (error) {
         console.error('Failed to delete time entry:', error);
@@ -61,42 +101,51 @@ function createTimeEntryStore() {
       }
     },
 
-    getByClientId(clientId: string): TimeEntry[] {
-      let entries: TimeEntry[] = [];
-      update(currentEntries => {
-        entries = currentEntries.filter(entry => entry.clientId === clientId);
-        return currentEntries;
-      });
-      return entries;
-    },
+    getUnbilledByClientId(clientId: string, includeSubClients: boolean = true) {
+      const result: TimeEntry[] = [];
+      const seen = new Set<string>();
 
-    getUnbilledByClientId(clientId: string): TimeEntry[] {
-      let unbilledEntries: TimeEntry[] = [];
-      update(currentEntries => {
-        unbilledEntries = currentEntries.filter(entry => entry.clientId === clientId && !entry.billed);
-        return currentEntries;
-      });
-      return unbilledEntries;
-    },
-
-    async markAsBilled(entryIds: string[]) {
-      try {
-        await Promise.all(
-          entryIds.map(id => 
-            put<TimeEntry>(`/time-entries/${id}`, { billed: true })
-          )
-        );
-        update(entries => 
-          entries.map(entry => 
-            entryIds.includes(entry.id) ? { ...entry, billed: true } : entry
-          )
-        );
-      } catch (error) {
-        console.error('Failed to mark entries as billed:', error);
-        throw error;
+      function addEntry(entry: TimeEntry) {
+        if (!seen.has(entry.id)) {
+          result.push(entry);
+          seen.add(entry.id);
+        }
       }
-    },
 
+      function processClient(cid: string) {
+        this.subscribe(entries => {
+          entries
+            .filter(e => e.clientId === cid && e.billable && !e.billed)
+            .forEach(addEntry);
+        });
+      }
+
+      // Add entries for the main client
+      processClient(clientId);
+
+      if (includeSubClients) {
+        // Get all child clients recursively
+        function getChildClients(parentId: string): string[] {
+          const children: string[] = [];
+          this.subscribe(entries => {
+            entries.forEach(entry => {
+              if (entry.client?.parentId === parentId) {
+                children.push(entry.client.id);
+                children.push(...getChildClients(entry.client.id));
+              }
+            });
+          });
+          return children;
+        }
+
+        // Process all child clients
+        const childClientIds = getChildClients(clientId);
+        childClientIds.forEach(processClient);
+      }
+
+      return result;
+    },
+    
     reset() {
       set([]);
       initialized = false;

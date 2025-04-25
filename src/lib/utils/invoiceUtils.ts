@@ -1,6 +1,7 @@
-import type { Invoice, TimeEntry } from '$lib/types';
+import type { Invoice, TimeEntry, InvoiceAddon, BillingRate, ClientBillingRateOverride } from '$lib/types';
 import * as api from '$lib/services/api';
 import { timeEntryStore } from '$lib/stores/timeEntryStore';
+import { hoursToFormatted, hoursToMinutes } from './timeUtils';
 
 /**
  * Generate an invoice for a client
@@ -54,15 +55,118 @@ export function formatCurrency(amount: number): string {
 }
 
 /**
- * Format hours as hours and minutes
+ * Format time
  */
-export function formatHours(hours: number): string {
-  const totalMinutes = Math.round(hours * 60);
-  const hrs = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  
-  if (hrs > 0) {
-    return `${hrs}h ${mins}m`;
+export function formatTime(hours: number, format: 'minutes' | 'hours' | 'formatted' = 'minutes'): string {
+  switch (format) {
+    case 'minutes':
+      return `${hoursToMinutes(hours)} min`;
+    case 'formatted':
+      return hoursToFormatted(hours);
+    default:
+      return `${hours.toFixed(2)} hrs`;
   }
-  return `${mins}m`;
+}
+
+/**
+ * Calculate effective billing rate
+ */
+export function calculateEffectiveRate(billingRate: BillingRate, overrides?: ClientBillingRateOverride[]): number {
+  if (!overrides?.length) return billingRate.rate;
+  
+  const override = overrides.find(o => o.baseRateId === billingRate.id);
+  if (!override) return billingRate.rate;
+  
+  return override.overrideType === 'percentage'
+    ? billingRate.rate * (override.value / 100)
+    : override.value;
+}
+
+/**
+ * Calculate time entry amount
+ */
+export function calculateTimeEntryAmount(entry: TimeEntry, billingRate?: BillingRate, overrides?: ClientBillingRateOverride[]): {
+  amount: number;
+  cost: number;
+  profit: number;
+} {
+  if (!billingRate) {
+    return { amount: 0, cost: 0, profit: 0 };
+  }
+
+  const rate = calculateEffectiveRate(billingRate, overrides);
+  const amount = entry.hours * rate;
+  const cost = entry.hours * billingRate.cost;
+  
+  return {
+    amount,
+    cost,
+    profit: amount - cost
+  };
+}
+
+/**
+ * Calculate addon amount
+ */
+export function calculateAddonAmount(addon: InvoiceAddon): {
+  amount: number;
+  cost: number;
+  profit: number;
+} {
+  const total = addon.amount * addon.quantity;
+  const totalCost = addon.cost * addon.quantity;
+  
+  return {
+    amount: total,
+    cost: totalCost,
+    profit: total - totalCost
+  };
+}
+
+/**
+ * Generate invoice number
+ */
+export function generateInvoiceNumber(prefix: string, nextNumber: number): string {
+  return `${prefix}-${nextNumber.toString().padStart(4, '0')}`;
+}
+
+/**
+ * Calculate totals for time entries and addons
+ */
+export function calculateTotals(timeEntries: TimeEntry[], addons: InvoiceAddon[] = []): {
+  hours: number;
+  amount: number;
+  cost: number;
+  profit: number;
+} {
+  const timeTotals = timeEntries.reduce((acc, entry) => {
+    const { amount, cost, profit } = calculateTimeEntryAmount(
+      entry,
+      entry.billingRate,
+      entry.client?.billingRateOverrides
+    );
+    
+    return {
+      hours: acc.hours + entry.hours,
+      amount: acc.amount + amount,
+      cost: acc.cost + cost,
+      profit: acc.profit + profit
+    };
+  }, { hours: 0, amount: 0, cost: 0, profit: 0 });
+
+  const addonTotals = addons.reduce((acc, addon) => {
+    const { amount, cost, profit } = calculateAddonAmount(addon);
+    return {
+      amount: acc.amount + amount,
+      cost: acc.cost + cost,
+      profit: acc.profit + profit
+    };
+  }, { amount: 0, cost: 0, profit: 0 });
+
+  return {
+    hours: timeTotals.hours,
+    amount: timeTotals.amount + addonTotals.amount,
+    cost: timeTotals.cost + addonTotals.cost,
+    profit: timeTotals.profit + addonTotals.profit
+  };
 }

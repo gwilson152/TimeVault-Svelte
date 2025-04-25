@@ -17,7 +17,7 @@ model Client {
   id          String      @id @default(uuid())
   name        String
   rate        Float
-  type        String      @default("business") // "business" | "individual"
+  type        String      @default("business") // "business" | "individual" | "organization"
   parentId    String?
   parent      Client?     @relation("ClientHierarchy", fields: [parentId], references: [id])
   children    Client[]    @relation("ClientHierarchy")
@@ -47,9 +47,14 @@ model TimeEntry {
   invoiceId   String?
   ticketId    String?
   ticket      Ticket?   @relation(fields: [ticketId], references: [id])
+  billingRateId String?
+  billingRate BillingRate? @relation(fields: [billingRateId], references: [id])
 
   @@map("time_entries")
   @@index([ticketId])
+  @@index([clientId])
+  @@index([invoiceId])
+  @@index([billingRateId])
 }
 
 model Invoice {
@@ -64,18 +69,21 @@ model Invoice {
   client       Client        @relation(fields: [clientId], references: [id])
   entries      TimeEntry[]
   addons       InvoiceAddon[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@map("invoices")
+  @@index([clientId])
 }
 
 model InvoiceAddon {
   id          String   @id @default(uuid())
   invoiceId   String
   description String
-  amount      Float
-  cost        Float    @default(0)
-  quantity    Float    @default(1)
-  profit      Float    @default(0)
+  amount      Float    // Price per unit
+  cost        Float    @default(0)  // Cost per unit
+  quantity    Float    @default(1)  // Number of units
+  profit      Float    @default(0)  // Calculated: (amount * quantity) - (cost * quantity)
   ticketAddonId String?
   ticketAddon TicketAddon? @relation(fields: [ticketAddonId], references: [id])
   invoice     Invoice  @relation(fields: [invoiceId], references: [id])
@@ -154,11 +162,13 @@ model BillingRate {
   id          String   @id @default(uuid())
   name        String   @unique
   rate        Float
+  cost        Float    @default(0)  // Internal cost rate for profit calculations
   description String?
   isDefault   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   overrides   ClientBillingRateOverride[]
+  timeEntries TimeEntry[]
 
   @@map("billing_rates")
 }
