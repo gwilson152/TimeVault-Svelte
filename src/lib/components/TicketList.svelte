@@ -30,6 +30,14 @@
       day: 'numeric'
     }).format(date);
   }
+
+  function getStatusStyles(ticket: Ticket) {
+    if (!ticket.status) {
+      // Default styling if status is missing
+      return 'background-color: rgba(209, 213, 219, 0.2); color: rgb(107, 114, 128);';
+    }
+    return `background-color: ${ticket.status.color}25; color: ${ticket.status.color};`;
+  }
 </script>
 
 <div class="space-y-4">
@@ -45,9 +53,9 @@
             <div class="flex items-center space-x-3">
               <span 
                 class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                style="background-color: {ticket.status.color}25; color: {ticket.status.color};"
+                style={getStatusStyles(ticket)}
               >
-                {ticket.status.name}
+                {ticket.status?.name || 'Unknown Status'}
               </span>
               <h3 class="text-lg font-medium">
                 <a 

@@ -4,6 +4,7 @@
   import { clientStore } from '$lib/stores/clientStore';
   import { settingsStore } from '$lib/stores/settingsStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
+  import { ticketStore } from '$lib/stores/ticketStore';
   import { formatCurrency, calculateTimeEntryAmount } from '$lib/utils/invoiceUtils';
   import { minutesToFormatted, formattedToMinutes, calculateDurationInMinutes, calculateEndTime } from '$lib/utils/timeUtils';
   import type { TimeEntry, NewTimeEntry, BillingRate } from '$lib/types';
@@ -39,11 +40,18 @@
   let form = writable<NewTimeEntry>(initialState);
   let durationInput = $state('');
   let endTimeInput = $state('');
+  let errors = $state<{[key: string]: string}>({});
   
   // Format input values
   const dateValue = $derived($form.date ? formatDateForInput($form.date) : '');
   const startTimeValue = $derived($form.startTime ? formatTimeForInput($form.startTime) : '');
   const selectedClient = $derived($clientStore.find(c => c.id === $form.clientId));
+  
+  // Track available tickets based on selected client
+  let availableTickets = $derived($form.clientId ? 
+    $ticketStore.filter(t => t.clientId === $form.clientId) :
+    []
+  );
 
   // Subscribe to billing rates from settings store
   let billingRates: BillingRate[] = $state([]);

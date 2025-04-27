@@ -176,3 +176,5 @@ export function calculateTotals(
     profit: entryTotals.profit + addonTotals.profit
   };
 }
+
+export { minutesToFormatted };
