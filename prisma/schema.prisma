@@ -13,6 +13,33 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Define user roles as an enum
+enum UserRole {
+  ADMIN        // System administrator with full access
+  AGENT        // Staff member who can manage tickets and time entries
+  CLIENT_ADMIN // Client administrator who can manage their client's data
+  CLIENT_USER  // Regular client user with limited access
+}
+
+model User {
+  id               String         @id @default(uuid())
+  email            String         @unique
+  name             String
+  passwordHash     String
+  role             UserRole       @default(CLIENT_USER)
+  clientId         String?        // Optional: only for CLIENT_ADMIN and CLIENT_USER roles
+  client           Client?        @relation(fields: [clientId], references: [id])
+  active           Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  timeEntries      TimeEntry[]    // Time entries created by this user
+  ticketNotes      TicketNote[]   // Notes created by this user
+  lastLoginAt      DateTime?      // Track last login time
+
+  @@index([clientId])
+  @@map("users")
+}
+
 model Client {
   id                   String                      @id @default(uuid())
   name                 String
@@ -27,6 +54,7 @@ model Client {
   invoices             Invoice[]
   tickets              Ticket[]
   billingRateOverrides ClientBillingRateOverride[]
+  users                User[]                      // Users associated with this client
 
   @@index([parentId])
   @@map("clients")
@@ -53,11 +81,14 @@ model TimeEntry {
   ticket        Ticket?      @relation(fields: [ticketId], references: [id])
   billingRateId String?
   billingRate   BillingRate? @relation(fields: [billingRateId], references: [id])
+  userId        String?      // The user who created this time entry
+  user          User?        @relation(fields: [userId], references: [id])
 
   @@index([ticketId])
   @@index([clientId])
   @@index([invoiceId])
   @@index([billingRateId])
+  @@index([userId])
   @@map("time_entries")
 }
 
@@ -129,9 +160,27 @@ model Ticket {
   status      TicketStatus  @relation(fields: [statusId], references: [id])
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+  notes       TicketNote[]  // Relation to ticket notes
 
   @@index([clientId])
   @@index([statusId])
+}
+
+// New model for ticket notes
+model TicketNote {
+  id        String   @id @default(uuid())
+  ticketId  String
+  content   String   // The note content
+  isInternal Boolean @default(false) // Whether the note is internal (only visible to agents/admins)
+  userId    String   // The user who created the note
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ticketId])
+  @@index([userId])
+  @@map("ticket_notes")
 }
 
 model TicketStatus {
