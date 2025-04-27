@@ -98,6 +98,7 @@
     });
 
     settingsStore.load();
+    ticketStore.load(); // Load tickets so they're available for selection
     return unsubscribe;
   });
 
@@ -438,6 +439,24 @@
           {/each}
         </select>
       </div>
+
+      <!-- Add Ticket selection field -->
+      {#if $form.clientId}
+        <div class="form-field">
+          <label for="ticketId" class="form-label">Ticket</label>
+          <select
+            id="ticketId"
+            class="form-select"
+            bind:value={$form.ticketId}
+            disabled={isLocked}
+          >
+            <option value="">No ticket</option>
+            {#each availableTickets as ticket}
+              <option value={ticket.id}>{ticket.title}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
 
       <div class="form-field">
         <label for="billable" class="form-label">Billable</label>

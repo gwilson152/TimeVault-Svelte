@@ -4,6 +4,56 @@ import { z } from 'zod';
 
 export type ClientType = 'business' | 'container' | 'individual';
 
+// User role types matching Prisma enum
+export type UserRole = 'ADMIN' | 'AGENT' | 'CLIENT_ADMIN' | 'CLIENT_USER';
+
+// User model interface
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  clientId: string | null;
+  client?: Client;
+  active: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  lastLoginAt?: Date;
+}
+
+// New user creation schema with password validation
+export const userSchema = z.object({
+  email: z.string().email('Valid email is required'),
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  role: z.enum(['ADMIN', 'AGENT', 'CLIENT_ADMIN', 'CLIENT_USER']),
+  clientId: z.string().nullable(),
+  active: z.boolean().default(true)
+});
+
+export type NewUser = Omit<z.infer<typeof userSchema>, 'password'> & { 
+  passwordHash: string 
+};
+
+// Ticket note interface
+export interface TicketNote {
+  id: string;
+  ticketId: string;
+  content: string;
+  isInternal: boolean;
+  userId: string;
+  user: User;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface NewTicketNote {
+  ticketId: string;
+  content: string;
+  isInternal: boolean;
+  userId: string;
+}
+
 export interface ClientBillingRateOverride {
   id: string;
   clientId: string;
@@ -53,6 +103,7 @@ export interface TimeEntry {
   date: Date;
   clientId: string | null;
   ticketId: string | null;
+  ticket?: Ticket | null; // Add the ticket relation
   billable: boolean;
   billed: boolean;
   locked: boolean;
@@ -60,6 +111,8 @@ export interface TimeEntry {
   billingRateId: string | null;
   client?: Client;
   billingRate?: BillingRate;
+  userId?: string | null; // Add the user ID who created this entry
+  user?: User | null; // Add the user relation
   createdAt: Date;
   updatedAt: Date;
 }
@@ -140,6 +193,7 @@ export interface Ticket {
   status: TicketStatus;
   clientId: string;
   addons: TicketAddon[];
+  notes?: TicketNote[]; // Add the notes relation
   createdAt: Date;
   updatedAt: Date;
 }
