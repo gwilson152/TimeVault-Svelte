@@ -23,7 +23,7 @@ export async function POST({ request }) {
       return json({ error: 'Client name is required and must be a string' }, { status: 400 });
     }
 
-    if (clientData.type && !['business', 'individual', 'organization'].includes(clientData.type)) {
+    if (clientData.type && !['business', 'individual', 'container'].includes(clientData.type)) {
       return json({ error: 'Invalid client type' }, { status: 400 });
     }
 
@@ -42,10 +42,10 @@ export async function POST({ request }) {
         return json({ error: 'Parent client not found' }, { status: 400 });
       }
 
-      // Only business or organization clients can be parents
-      if (!['business', 'organization'].includes(parentClient.type)) {
+      // Only business or container clients can be parents
+      if (!['business', 'container'].includes(parentClient.type)) {
         return json(
-          { error: 'Only business or organization clients can have sub-clients' }, 
+          { error: 'Only business or container clients can have sub-clients' }, 
           { status: 400 }
         );
       }

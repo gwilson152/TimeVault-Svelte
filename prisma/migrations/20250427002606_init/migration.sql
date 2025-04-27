@@ -15,7 +15,9 @@ CREATE TABLE "clients" (
 CREATE TABLE "time_entries" (
     "id" TEXT NOT NULL,
     "description" TEXT NOT NULL,
-    "hours" DOUBLE PRECISION NOT NULL,
+    "startTime" TIMESTAMP(3) NOT NULL,
+    "endTime" TIMESTAMP(3),
+    "minutes" DOUBLE PRECISION NOT NULL,
     "date" TIMESTAMP(3) NOT NULL,
     "clientId" TEXT,
     "billable" BOOLEAN NOT NULL DEFAULT true,
@@ -24,6 +26,7 @@ CREATE TABLE "time_entries" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "invoiceId" TEXT,
     "ticketId" TEXT,
+    "billingRateId" TEXT,
 
     CONSTRAINT "time_entries_pkey" PRIMARY KEY ("id")
 );
@@ -33,11 +36,13 @@ CREATE TABLE "invoices" (
     "id" TEXT NOT NULL,
     "invoiceNumber" TEXT,
     "clientId" TEXT NOT NULL,
-    "totalHours" DOUBLE PRECISION NOT NULL,
+    "totalMinutes" DOUBLE PRECISION NOT NULL,
     "totalAmount" DOUBLE PRECISION NOT NULL,
     "totalCost" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "totalProfit" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "invoices_pkey" PRIMARY KEY ("id")
 );
@@ -121,6 +126,7 @@ CREATE TABLE "billing_rates" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "rate" DOUBLE PRECISION NOT NULL,
+    "cost" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "description" TEXT,
     "isDefault" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -147,6 +153,18 @@ CREATE INDEX "clients_parentId_idx" ON "clients"("parentId");
 
 -- CreateIndex
 CREATE INDEX "time_entries_ticketId_idx" ON "time_entries"("ticketId");
+
+-- CreateIndex
+CREATE INDEX "time_entries_clientId_idx" ON "time_entries"("clientId");
+
+-- CreateIndex
+CREATE INDEX "time_entries_invoiceId_idx" ON "time_entries"("invoiceId");
+
+-- CreateIndex
+CREATE INDEX "time_entries_billingRateId_idx" ON "time_entries"("billingRateId");
+
+-- CreateIndex
+CREATE INDEX "invoices_clientId_idx" ON "invoices"("clientId");
 
 -- CreateIndex
 CREATE INDEX "invoice_addons_invoiceId_idx" ON "invoice_addons"("invoiceId");
@@ -192,6 +210,9 @@ ALTER TABLE "time_entries" ADD CONSTRAINT "time_entries_invoiceId_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "time_entries" ADD CONSTRAINT "time_entries_ticketId_fkey" FOREIGN KEY ("ticketId") REFERENCES "Ticket"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "time_entries" ADD CONSTRAINT "time_entries_billingRateId_fkey" FOREIGN KEY ("billingRateId") REFERENCES "billing_rates"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "invoices" ADD CONSTRAINT "invoices_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "clients"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

@@ -4,37 +4,46 @@
   import { clientStore } from '$lib/stores/clientStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
   import { GlassCard } from '$lib/components';
-  import type { Client, TimeEntry, NewInvoiceAddon } from '$lib/types';
-  import { hoursToFormatted, hoursToMinutes } from '$lib/utils/timeUtils';
+  import type { Client, TimeEntry } from '$lib/types';
+  import { minutesToFormatted } from '$lib/utils/timeUtils';
   import { formatCurrency } from '$lib/utils/invoiceUtils';
   import { goto } from '$app/navigation';
   import * as api from '$lib/services/api';
 
-  export let clientId: string | undefined = undefined;
+  const clientId = $props<string | undefined>();
+  
+  type NewInvoiceAddon = {
+    description: string;
+    amount: number;
+    cost: number;
+    quantity: number;
+    profit: number;
+    ticketAddonId?: string;
+  };
 
-  let clients: Client[] = [];
-  let allEntries: TimeEntry[] = [];
+  let clients = $state<Client[]>([]);
+  let allEntries = $state<TimeEntry[]>([]);
+  let clientHierarchy = $state<Client[]>([]);
+  
   let selectedEntries = writable<Record<string, boolean>>({});
   let invoiceNumber = writable<string>('');
   let isLoading = writable<boolean>(true);
   let isGenerating = writable<boolean>(false);
   let selectedClientId = writable<string>('');
-  let clientHierarchy: Client[] = [];
   let showAddonsForm = writable<boolean>(false);
   let invoiceAddons = writable<NewInvoiceAddon[]>([]);
+  let timeFormat = writable<'minutes' | 'minutes' | 'formatted'>('minutes');
 
-  // Time entry format preference
-  let timeFormat = writable<'minutes' | 'hours' | 'formatted'>('minutes');
+  // Subscribe to client store changes
+  $effect(() => {
+    clients = [...$clientStore];
+  });
 
   onMount(async () => {
     try {
       await clientStore.load();
       await timeEntryStore.load();
       
-      // Get all clients or use the provided client
-      clients = $clientStore;
-      
-      // If clientId is provided, select that client
       if (clientId) {
         selectedClientId.set(clientId);
         await loadClientEntries(clientId);
@@ -47,10 +56,10 @@
     }
   });
 
-  // Watch for changes to selectedClientId
-  $effect(() => {
-    if ($selectedClientId) {
-      loadClientEntries($selectedClientId);
+  // Remove the problematic $effect and move logic into a synchronous store subscription
+  selectedClientId.subscribe(async (id) => {
+    if (id) {
+      await loadClientEntries(id);
     } else {
       allEntries = [];
       selectedEntries.set({});
@@ -58,12 +67,10 @@
     }
   });
 
-  // Get all child clients recursively
   function getChildClients(parentId: string): Client[] {
     const children = $clientStore.filter(c => c.parentId === parentId);
     let allChildren: Client[] = [...children];
     
-    // Recursively add children of children
     for (const child of children) {
       allChildren = [...allChildren, ...getChildClients(child.id)];
     }
@@ -71,78 +78,70 @@
     return allChildren;
   }
 
-  // Load all unbilled time entries for a client and its children
   async function loadClientEntries(cid: string) {
-    // Get the selected client
-    const client = $clientStore.find(c => c.id === cid);
+    const client = clients.find(c => c.id === cid);
     if (!client) return;
     
-    // Get the client hierarchy (selected client + all children)
     clientHierarchy = [client, ...getChildClients(client.id)];
     
-    // Get all clientIds in the hierarchy
     const clientIds = clientHierarchy.map(c => c.id);
     
-    // Get all unbilled time entries for all clients in the hierarchy
-    allEntries = $timeEntryStore.filter(entry => 
+    const entries = $timeEntryStore.filter(entry => 
       entry.billable && 
       !entry.billed && 
       entry.clientId && 
       clientIds.includes(entry.clientId)
     );
     
-    // Initialize all entries as selected
     const initialSelection: Record<string, boolean> = {};
-    allEntries.forEach(entry => {
+    entries.forEach(entry => {
       initialSelection[entry.id] = true;
     });
     
+    allEntries = entries;
     selectedEntries.set(initialSelection);
   }
 
-  // Toggle all entries
-  function toggleAllEntries(selected: boolean) {
+  function toggleAllEntries(event: Event) {
+    const target = event.target as HTMLInputElement;
     const newSelection = { ...$selectedEntries };
     allEntries.forEach(entry => {
-      newSelection[entry.id] = selected;
+      newSelection[entry.id] = target.checked;
     });
     selectedEntries.set(newSelection);
   }
   
-  // Get the client name for an entry
   function getClientName(clientId: string | null): string {
     if (!clientId) return 'No Client';
     const client = clients.find(c => c.id === clientId);
     return client ? client.name : 'Unknown Client';
   }
   
-  // Format time based on preferred format
-  function formatTime(hours: number): string {
+  function formatTime(minutes: number): string {
     if ($timeFormat === 'minutes') {
-      return `${hoursToMinutes(hours)} min`;
+      return `${minutes} min`;
     } else if ($timeFormat === 'formatted') {
-      return hoursToFormatted(hours);
+      return minutesToFormatted(minutes);
     } else {
-      return `${hours.toFixed(2)} hrs`;
+      return `${minutes.toFixed(2)} hrs`;
     }
   }
   
-  // Calculate the total for selected entries
-  function calculateSelectedTotal(): { hours: number, amount: number } {
+  function getSelectedTotal() {
     return allEntries
       .filter(entry => $selectedEntries[entry.id])
       .reduce((total, entry) => {
         const client = clients.find(c => c.id === entry.clientId);
-        const rate = client?.rate || 0;
+        const billingRate = client?.billingRateOverrides?.[0]?.value || 0;
+        const hourlyDuration = entry.minutes / 60; // Convert minutes to hours
         return {
-          hours: total.hours + entry.hours,
-          amount: total.amount + (entry.hours * rate)
+          minutes: total.minutes + entry.minutes,
+          amount: total.amount + (hourlyDuration * billingRate)
         };
-      }, { hours: 0, amount: 0 });
+      }, { minutes: 0, amount: 0 });
   }
-  
-  // Calculate the total for addons
-  function calculateAddonsTotal(): { amount: number, cost: number, profit: number } {
+
+  function getAddonTotals() {
     return $invoiceAddons.reduce((total, addon) => {
       const addonTotal = addon.amount * addon.quantity;
       const addonCost = addon.cost * addon.quantity;
@@ -154,29 +153,29 @@
     }, { amount: 0, cost: 0, profit: 0 });
   }
   
-  // Add a new blank addon
   function addAddon() {
-    invoiceAddons.update(addons => [
-      ...addons, 
-      { description: '', amount: 0, cost: 0, quantity: 1 }
-    ]);
+    const newAddon: NewInvoiceAddon = {
+      description: '',
+      amount: 0,
+      cost: 0,
+      quantity: 1,
+      profit: 0
+    };
+    invoiceAddons.update(addons => [...addons, newAddon]);
   }
   
-  // Remove an addon
   function removeAddon(index: number) {
     invoiceAddons.update(addons => 
       addons.filter((_, i) => i !== index)
     );
   }
 
-  // Generate the invoice
   async function generateInvoice() {
     if (!$selectedClientId) {
       alert('Please select a client');
       return;
     }
     
-    // Get selected entries
     const selectedTimeEntries = allEntries.filter(entry => $selectedEntries[entry.id]);
     
     if (selectedTimeEntries.length === 0 && $invoiceAddons.length === 0) {
@@ -187,7 +186,6 @@
     isGenerating.set(true);
     
     try {
-      // Generate invoice
       await api.generateInvoice($selectedClientId, selectedTimeEntries, {
         invoiceNumber: $invoiceNumber || undefined,
         addons: $invoiceAddons.map(addon => ({
@@ -198,7 +196,6 @@
         }))
       });
       
-      // Navigate to invoices page
       goto('/invoices');
     } catch (error) {
       console.error('Failed to generate invoice:', error);
@@ -210,7 +207,7 @@
 </script>
 
 <div class="space-y-6">
-  <GlassCard class="p-6">
+  <GlassCard className="p-6">
     <h2 class="text-xl font-semibold mb-4">Generate Invoice</h2>
     
     {#if $isLoading}
@@ -219,14 +216,13 @@
       </div>
     {:else}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- Client Selection -->
         <div class="form-field">
           <label for="client" class="form-label">Client</label>
           <select
             id="client"
             bind:value={$selectedClientId}
             class="form-select"
-            disabled={!!clientId || $isGenerating}
+            disabled={$isGenerating}
           >
             <option value="">Select a client</option>
             {#each clients as client}
@@ -238,7 +234,6 @@
           </span>
         </div>
 
-        <!-- Invoice Number -->
         <div class="form-field">
           <label for="invoiceNumber" class="form-label">Invoice Number</label>
           <input
@@ -251,31 +246,23 @@
           />
         </div>
         
-        <!-- Time Format Selection -->
         <div class="form-field col-span-full">
-          <label class="form-label">Time Format</label>
-          <div class="flex gap-4">
-            <label class="flex items-center">
+          <div class="form-label mb-2">Time Format Display</div>
+          <div class="flex gap-4" role="radiogroup" aria-label="Time Format">
+            <label class="flex items-center" for="format-minutes">
               <input 
                 type="radio" 
+                id="format-minutes"
                 bind:group={$timeFormat} 
                 value="minutes" 
                 class="form-radio mr-2"
               />
               Minutes
             </label>
-            <label class="flex items-center">
+            <label class="flex items-center" for="format-formatted">
               <input 
                 type="radio" 
-                bind:group={$timeFormat} 
-                value="hours" 
-                class="form-radio mr-2"
-              />
-              Decimal Hours
-            </label>
-            <label class="flex items-center">
-              <input 
-                type="radio" 
+                id="format-formatted"
                 bind:group={$timeFormat} 
                 value="formatted" 
                 class="form-radio mr-2"
@@ -288,9 +275,8 @@
     {/if}
   </GlassCard>
 
-  <!-- Time Entries Section -->
   {#if $selectedClientId && allEntries.length > 0}
-    <GlassCard class="p-0 overflow-hidden">
+    <GlassCard className="p-0 overflow-hidden">
       <div class="p-4 border-b border-white/10 flex justify-between items-center">
         <h3 class="text-lg font-medium">Time Entries</h3>
         
@@ -300,7 +286,7 @@
               type="checkbox" 
               checked={Object.values($selectedEntries).every(Boolean)}
               class="form-checkbox mr-2"
-              on:change={(e) => toggleAllEntries(e.target.checked)}
+              onchange={toggleAllEntries}
               disabled={$isGenerating}
             />
             Select All
@@ -329,6 +315,7 @@
           <tbody class="divide-y divide-white/5">
             {#each allEntries as entry}
               {@const client = clients.find(c => c.id === entry.clientId)}
+              {@const billingRate = client?.billingRateOverrides?.[0]?.value || 0}
               <tr class="hover:bg-white/5">
                 <td class="p-3">
                   <input 
@@ -341,38 +328,39 @@
                 <td class="p-3">{entry.description}</td>
                 <td class="p-3">{getClientName(entry.clientId)}</td>
                 <td class="p-3">{entry.date.toLocaleDateString()}</td>
-                <td class="p-3 text-right">{formatTime(entry.hours)}</td>
+                <td class="p-3 text-right">{formatTime(entry.minutes)}</td>
                 <td class="p-3 text-right">
-                  {formatCurrency(entry.hours * (client?.rate || 0))}
+                  {formatCurrency((entry.minutes / 60) * billingRate)}
                 </td>
               </tr>
             {/each}
-            {@const total = calculateSelectedTotal()}
-            <tr class="font-medium bg-blue-900/20">
-              <td class="p-3" colspan="4">Selected Total</td>
-              <td class="p-3 text-right">{formatTime(total.hours)}</td>
-              <td class="p-3 text-right">{formatCurrency(total.amount)}</td>
-            </tr>
+            {#if Object.values($selectedEntries).some(Boolean)}
+              {@const total = getSelectedTotal()}
+              <tr class="font-medium bg-blue-900/20">
+                <td class="p-3" colspan="4">Selected Total</td>
+                <td class="p-3 text-right">{formatTime(total.minutes)}</td>
+                <td class="p-3 text-right">{formatCurrency(total.amount)}</td>
+              </tr>
+            {/if}
           </tbody>
         </table>
       </div>
     </GlassCard>
   {:else if $selectedClientId}
-    <GlassCard class="p-6">
+    <GlassCard className="p-6">
       <div class="text-center py-6 text-gray-400">
         No unbilled time entries found for this client or its sub-clients.
       </div>
     </GlassCard>
   {/if}
 
-  <!-- Invoice Addons Section -->
-  <GlassCard class="p-4">
+  <GlassCard className="p-4">
     <div class="flex justify-between items-center mb-4">
       <h3 class="text-lg font-medium">Invoice Add-ons</h3>
       <button 
         type="button" 
         class="btn btn-sm btn-secondary"
-        on:click={addAddon}
+        onclick={addAddon}
         disabled={$isGenerating}
       >
         Add Item
@@ -444,7 +432,7 @@
                   <button 
                     type="button" 
                     class="text-red-400 hover:text-red-300"
-                    on:click={() => removeAddon(index)}
+                    onclick={() => removeAddon(index)}
                     disabled={$isGenerating}
                   >
                     Remove
@@ -452,13 +440,14 @@
                 </td>
               </tr>
             {/each}
-            {@const addonTotals = calculateAddonsTotal()}
-            <tr class="font-medium bg-blue-900/20">
-              <td class="p-3" colspan="4">Addons Total</td>
-              <td class="p-3 text-right">{formatCurrency(addonTotals.amount)}</td>
-              <td class="p-3 text-right">{formatCurrency(addonTotals.profit)}</td>
-              <td></td>
-            </tr>
+            {#if $invoiceAddons.length > 0}
+              <tr class="font-medium bg-blue-900/20">
+                <td class="p-3" colspan="4">Addons Total</td>
+                <td class="p-3 text-right">{formatCurrency(getAddonTotals().amount)}</td>
+                <td class="p-3 text-right">{formatCurrency(getAddonTotals().profit)}</td>
+                <td></td>
+              </tr>
+            {/if}
           </tbody>
         </table>
       </div>
@@ -469,42 +458,43 @@
     {/if}
   </GlassCard>
 
-  <!-- Invoice Summary Section -->
   {#if $selectedClientId}
-    {@const timeTotal = calculateSelectedTotal()}
-    {@const addonTotals = calculateAddonsTotal()}
-    {@const grandTotal = timeTotal.amount + addonTotals.amount}
-    
-    <GlassCard class="p-6">
-      <div class="flex flex-col md:flex-row justify-between items-center">
-        <div class="text-lg font-medium mb-4 md:mb-0">
-          Total Invoice Amount: <span class="text-xl font-bold">{formatCurrency(grandTotal)}</span>
+    {#if Object.values($selectedEntries).some(Boolean) || $invoiceAddons.length > 0}
+      {@const timeTotal = getSelectedTotal()}
+      {@const addonTotals = getAddonTotals()}
+      {@const grandTotal = timeTotal.amount + addonTotals.amount}
+      
+      <GlassCard className="p-6">
+        <div class="flex flex-col md:flex-row justify-between items-center">
+          <div class="text-lg font-medium mb-4 md:mb-0">
+            Total Invoice Amount: <span class="text-xl font-bold">{formatCurrency(grandTotal)}</span>
+          </div>
+          
+          <div class="flex gap-4">
+            <button 
+              type="button" 
+              class="btn btn-secondary"
+              disabled={$isGenerating}
+              onclick={() => {
+                selectedClientId.set('');
+                selectedEntries.set({});
+                invoiceNumber.set('');
+                invoiceAddons.set([]);
+              }}
+            >
+              Cancel
+            </button>
+            <button 
+              type="button" 
+              class="btn btn-primary" 
+              onclick={generateInvoice}
+              disabled={$isGenerating || (timeTotal.minutes === 0 && addonTotals.amount === 0)}
+            >
+              {$isGenerating ? 'Generating...' : 'Generate Invoice'}
+            </button>
+          </div>
         </div>
-        
-        <div class="flex gap-4">
-          <button 
-            type="button" 
-            class="btn btn-secondary"
-            disabled={$isGenerating}
-            on:click={() => {
-              selectedClientId.set('');
-              selectedEntries.set({});
-              invoiceNumber.set('');
-              invoiceAddons.set([]);
-            }}
-          >
-            Cancel
-          </button>
-          <button 
-            type="button" 
-            class="btn btn-primary" 
-            on:click={generateInvoice}
-            disabled={$isGenerating || (timeTotal.hours === 0 && addonTotals.amount === 0)}
-          >
-            {$isGenerating ? 'Generating...' : 'Generate Invoice'}
-          </button>
-        </div>
-      </div>
-    </GlassCard>
+      </GlassCard>
+    {/if}
   {/if}
 </div>

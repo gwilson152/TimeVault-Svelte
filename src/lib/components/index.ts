@@ -8,3 +8,5 @@ export { default as TicketForm } from './TicketForm.svelte';
 export { default as TicketList } from './TicketList.svelte';
 export { default as TimeEntryForm } from './TimeEntryForm.svelte';
 export { default as TimeEntryList } from './TimeEntryList.svelte';
+export { default as TicketStatusSettings } from './TicketStatusSettings.svelte';
+export { default as BillingRatesSettings } from './BillingRatesSettings.svelte';

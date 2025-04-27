@@ -21,6 +21,9 @@
   let sortDirection = writable<'asc' | 'desc'>('asc');
   let filter = writable('');
   
+  // Add collapsed state store
+  const collapsedClients = writable<Set<string>>(new Set());
+  
   // Client hierarchy store
   const clientHierarchy = derived(clientStore, ($clients) => {
     // Get root level clients (no parent)
@@ -28,9 +31,9 @@
     
     function processClient(client: Client, level: number): ClientWithStats {
       const clientTimeEntries = timeEntryStore.getByClientId(client.id);
-      const totalHours = clientTimeEntries.reduce((sum, e) => sum + e.hours, 0);
-      const billableHours = clientTimeEntries.filter(e => e.billable).reduce((sum, e) => sum + e.hours, 0);
-      const unbilledHours = clientTimeEntries.filter(e => e.billable && !e.billed).reduce((sum, e) => sum + e.hours, 0);
+      const totalHours = clientTimeEntries.reduce((sum, e) => sum + e.minutes, 0) / 60;
+      const billableHours = clientTimeEntries.filter(e => e.billable).reduce((sum, e) => sum + e.minutes, 0) / 60;
+      const unbilledHours = clientTimeEntries.filter(e => e.billable && !e.billed).reduce((sum, e) => sum + e.minutes, 0) / 60;
       
       return {
         ...client,
@@ -58,17 +61,46 @@
     return buildHierarchy($clients);
   });
   
-  // Filter clients with hierarchy
-  const filteredClients = derived([clientHierarchy, filter], ([$hierarchy, $filter]) => {
-    const searchTerm = $filter.toLowerCase();
-    if (!searchTerm) return $hierarchy;
-    
-    return $hierarchy.filter(client =>
-      client.name.toLowerCase().includes(searchTerm) ||
-      client.type.toLowerCase().includes(searchTerm)
-    );
-  });
-  
+  // Modify clientHierarchy to include visibility
+  const visibleClients = derived(
+    [clientHierarchy, collapsedClients],
+    ([$hierarchy, $collapsed]) => {
+      const result: ClientWithStats[] = [];
+      
+      function addVisibleClients(clients: ClientWithStats[]) {
+        for (const client of clients) {
+          result.push(client);
+          
+          // If client is not collapsed and has children, add them recursively
+          if (!$collapsed.has(client.id)) {
+            const children = $hierarchy.filter(c => c.parentId === client.id);
+            addVisibleClients(children);
+          }
+        }
+      }
+      
+      // Start with root clients
+      const rootClients = $hierarchy.filter(c => !c.parentId);
+      addVisibleClients(rootClients);
+      
+      return result;
+    }
+  );
+
+  // Replace filteredClients derivation
+  const filteredClients = derived(
+    [visibleClients, filter],
+    ([$visible, $filter]) => {
+      const searchTerm = $filter.toLowerCase();
+      if (!searchTerm) return $visible;
+      
+      return $visible.filter(client =>
+        client.name.toLowerCase().includes(searchTerm) ||
+        client.type.toLowerCase().includes(searchTerm)
+      );
+    }
+  );
+
   // Toggle sort direction or change sort field
   function handleSort(field: keyof Client) {
     if ($sortField === field) {
@@ -99,6 +131,18 @@
     if (confirm('Are you sure you want to delete this client?')) {
       clientStore.remove(id);
     }
+  }
+
+  function toggleCollapse(clientId: string) {
+    collapsedClients.update($collapsed => {
+      const newCollapsed = new Set($collapsed);
+      if (newCollapsed.has(clientId)) {
+        newCollapsed.delete(clientId);
+      } else {
+        newCollapsed.add(clientId);
+      }
+      return newCollapsed;
+    });
   }
 </script>
 
@@ -156,14 +200,34 @@
               <td class="px-3 py-2 whitespace-nowrap">
                 <div class="flex items-center gap-2">
                   {#if client.level > 0}
-                    <div class="w-{client.level * 4} border-l-2 border-gray-300 h-4"></div>
+                    <div style="width: {client.level * 1.5}rem"></div>
                   {/if}
+                  
+                  {#if $clientHierarchy.some(c => c.parentId === client.id)}
+                    <button 
+                      class="w-4 h-4 flex items-center justify-center text-gray-500 hover:text-gray-700"
+                      onclick={(e) => {
+                        e.preventDefault();
+                        toggleCollapse(client.id);
+                      }}
+                    >
+                      {#if $collapsedClients.has(client.id)}
+                        <span class="transform rotate-[-90deg] transition-transform">▼</span>
+                      {:else}
+                        <span class="transform transition-transform">▼</span>
+                      {/if}
+                    </button>
+                  {:else}
+                    <div class="w-4"></div>
+                  {/if}
+                  
                   <a 
                     href="/clients/{client.id}" 
                     class="text-blue-600 hover:text-blue-900"
                   >
                     {client.name}
                   </a>
+                  
                   <!-- Show type badge on mobile -->
                   <span class="sm:hidden inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium
                     {client.type === 'business' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">

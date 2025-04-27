@@ -12,7 +12,7 @@ export function hoursToMinutes(hours: number): number {
 }
 
 /**
- * Convert minutes to decimal hours
+ * Convert minutes to hours for display
  * @param minutes Time in minutes
  * @returns Time in decimal hours
  */
@@ -55,8 +55,11 @@ export function formattedToHours(formatted: string): number | null {
  * @returns Time in minutes, or null if invalid format
  */
 export function formattedToMinutes(formatted: string): number | null {
-  const hours = formattedToHours(formatted);
-  return hours !== null ? hoursToMinutes(hours) : null;
+  const match = formatted.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  const [, hours, minutes] = match;
+  return parseInt(hours) * 60 + parseInt(minutes);
 }
 
 /**
@@ -65,7 +68,30 @@ export function formattedToMinutes(formatted: string): number | null {
  * @returns Time in HH:MM format
  */
 export function minutesToFormatted(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = Math.round(minutes % 60);
+  return `${hours.toString().padStart(2, '0')}:${remainingMinutes.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Calculate duration in minutes between two dates
+ * @param start Start date/time
+ * @param end End date/time
+ * @returns Duration in minutes
+ */
+export function calculateDurationInMinutes(start: Date, end: Date): number {
+  const diffMs = end.getTime() - start.getTime();
+  return Math.round(diffMs / (1000 * 60)); // Convert ms to minutes
+}
+
+/**
+ * Calculate end time from start time and minutes
+ * @param start Start date/time
+ * @param minutes Duration in minutes
+ * @returns End date/time
+ */
+export function calculateEndTime(start: Date, minutes: number): Date {
+  const end = new Date(start);
+  end.setTime(end.getTime() + (minutes * 60 * 1000));
+  return end;
 }

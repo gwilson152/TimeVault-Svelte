@@ -462,3 +462,109 @@ html, body {
   background-color: rgba(224, 242, 254, 0.8);
   color: rgb(7, 89, 133);
 }
+
+@layer components {
+  .table-action-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    transition-property: color, background-color;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+  }
+
+  .table-action-button-primary {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    transition-property: color, background-color;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+    background-color: rgba(59, 130, 246, 0.2);
+    color: rgb(147, 197, 253);
+  }
+
+  .table-action-button-primary:hover {
+    background-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .table-action-button-danger {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    transition-property: color, background-color;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+    background-color: rgba(239, 68, 68, 0.2);
+    color: rgb(252, 165, 165);
+  }
+
+  .table-action-button-danger:hover {
+    background-color: rgba(239, 68, 68, 0.3);
+  }
+  
+  /* Data Table styles */
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .data-table-header {
+    background-color: rgba(17, 24, 39, 0.5);
+    color: rgb(209, 213, 219);
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .data-table-header th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+  }
+
+  .data-table-header th.right-aligned {
+    text-align: right;
+  }
+
+  .data-table-row {
+    transition-property: background-color;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .data-table-row:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .data-table-row td {
+    padding: 0.875rem 1rem;
+    vertical-align: top;
+  }
+
+  .data-table-row td.right-aligned {
+    text-align: right;
+  }
+  
+  .data-table-footer {
+    background-color: rgba(30, 58, 138, 0.1);
+    font-weight: 500;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .data-table-footer td {
+    padding: 0.75rem 1rem;
+  }
+}

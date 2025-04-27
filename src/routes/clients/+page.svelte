@@ -3,9 +3,7 @@
   import { onMount } from 'svelte';
   import type { Client } from '$lib/types';
   import { clientStore } from '$lib/stores/clientStore';
-  import { GlassCard } from '$lib/components';
-  import ClientList from '$lib/components/ClientList.svelte';
-  import ClientForm from '$lib/components/ClientForm.svelte';
+  import { GlassCard, ClientForm, ClientList, Modal } from '$lib/components';
 
   // State
   let editingClient = writable<Client | null>(null);
@@ -15,7 +13,7 @@
   // Load client data on component mount
   onMount(async () => {
     try {
-      await clientStore.load();
+      await clientStore.load(true); // Force refresh
       isLoading.set(false);
     } catch (error) {
       console.error('Failed to load clients:', error);
@@ -40,8 +38,8 @@
   }
 </script>
 
-<div class="container mx-auto px-4 py-8 space-y-6">
-  <GlassCard class="p-6">
+<div class="space-y-6">
+  <GlassCard className="p-6">
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
       <h1 class="text-2xl font-bold">Clients</h1>
       <button
@@ -53,25 +51,30 @@
     </div>
   </GlassCard>
   
-  {#if $showForm}
-    <GlassCard class="p-6">
-      <ClientForm
-        editClient={$editingClient}
-        onSave={handleSave}
-        onCancel={handleCancel}
-      />
-    </GlassCard>
-  {/if}
-  
   {#if $isLoading}
-    <GlassCard class="p-6">
+    <GlassCard className="p-6">
       <div class="text-center py-12">
         <div class="text-gray-400 animate-pulse">Loading clients...</div>
       </div>
     </GlassCard>
   {:else}
-    <GlassCard class="p-0 overflow-hidden">
+    <GlassCard className="p-0 overflow-hidden">
       <ClientList onEdit={handleEdit} />
     </GlassCard>
   {/if}
 </div>
+
+<Modal
+  open={$showForm}
+  title={$editingClient ? 'Edit Client' : 'New Client'}
+  width="max-w-2xl"
+  on:close={handleCancel}
+>
+  <div class="p-6">
+    <ClientForm
+      editClient={$editingClient}
+      onSave={handleSave}
+      onCancel={handleCancel}
+    />
+  </div>
+</Modal>

@@ -13,7 +13,7 @@
   // Initialize form state
   const initialState: NewClient = {
     name: '',
-    type: 'business',
+    type: 'individual',
     parentId: null
   };
 
@@ -30,14 +30,14 @@
       const overrides: Record<string, NewBillingRateOverride> = {};
       const types: Record<string, 'percentage' | 'fixed' | ''> = {};
       
-      props.editClient.billingRateOverrides.forEach((override: ClientBillingRateOverride) => {
-        overrides[override.baseRateId] = {
-          baseRateId: override.baseRateId,
-          overrideType: override.overrideType,
-          value: override.value
-        };
-        types[override.baseRateId] = override.overrideType;
-      });
+      // props.editClient.billingRateOverrides.forEach((override: ClientBillingRateOverride) => {
+      //   overrides[override.baseRateId] = {
+      //     baseRateId: override.baseRateId,
+      //     overrideType: override.overrideType,
+      //     value: override.value
+      //   };
+      //   types[override.baseRateId] = override.overrideType;
+      // });
       
       overrideForm.set(overrides);
       overrideTypes.set(types);
@@ -48,12 +48,13 @@
     }
   });
 
-  // Get potential parent clients (avoid circular references and filter individual clients)
+  // Filter out current client from available parents
   const availableParents = $derived($clientStore.filter(c => {
-    // Filter out individual clients as they cannot be parents
-    if (c.type === 'individual') return false;
+    // Filter to only show business or container clients 
+    if (!['business', 'container'].includes(c.type)) return false;
     
     if (!props.editClient) return true;
+
     // Can't select self or any descendants as parent
     const isDescendant = (parentId: string | null): boolean => {
       if (!parentId) return false;
@@ -66,14 +67,6 @@
   
   let overrideForm = writable<Record<string, NewBillingRateOverride | undefined>>({});
   let overrideTypes = writable<Record<string, 'percentage' | 'fixed' | ''>>({});
-
-  // Add reactivity to ensure type and parentId are properly set
-  $effect(() => {
-    // If client type is individual, ensure parentId is null
-    if ($form.type === 'individual' && $form.parentId) {
-      form.update(f => ({...f, parentId: null}));
-    }
-  });
 
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
@@ -119,7 +112,7 @@
     }
   }
 
-  const clientTypes: ClientType[] = ['business', 'individual', 'organization'];
+  const clientTypes: ClientType[] = ['business', 'container', 'individual'];
 </script>
 
 <div class="form-section">
@@ -159,117 +152,15 @@
           id="parentId"
           class="form-control"
           bind:value={$form.parentId}
-          disabled={$form.type === 'individual'}
         >
           <option value="">No parent client</option>
           {#each availableParents as client}
             <option value={client.id}>{client.name}</option>
           {/each}
         </select>
-        {#if $form.type === 'individual'}
-          <span class="form-hint">Individual clients cannot have a parent.</span>
-        {/if}
+        <span class="form-hint">Only business and container clients can be parent clients.</span>
       </div>
     </div>
-
-    {#if $clientStore.length > 0}
-      <div class="form-section mt-6">
-        <h3 class="text-lg font-medium mb-4">Billing Rate Overrides</h3>
-        <p class="form-helper mb-4">
-          Set custom billing rates for specific clients. You can override the standard rate with either a percentage or fixed amount.
-        </p>
-        
-        <div class="space-y-4">
-          {#each $clientStore as client}
-            <div class="card-dense mb-3">
-              <div class="flex flex-col sm:flex-row gap-3">
-                <div class="flex-1">
-                  <label for="client-{client.id}-name" class="text-sm font-medium text-gray-700 mb-1 block">
-                    {client.name}
-                  </label>
-                  <input type="hidden" id="client-{client.id}-name" value={client.name} />
-                  <div class="text-xs text-gray-500">Standard rate: {formatCurrency(client.rate)}/hr</div>
-                </div>
-                
-                <div class="flex gap-3 items-start">
-                  <div class="w-32">
-                    <label for="override-type-{client.id}" class="text-sm font-medium text-gray-700 mb-1 block">
-                      Type
-                    </label>
-                    <select
-                      id="override-type-{client.id}"
-                      class="form-control"
-                      value={$overrideTypes[client.id] || ''}
-                      onchange={(e) => {
-                        const type = e.currentTarget.value as 'percentage' | 'fixed' | '';
-                        if (type === '') {
-                          overrideForm.update(form => ({
-                            ...form,
-                            [client.id]: undefined
-                          }));
-                        } else {
-                          overrideForm.update(form => ({
-                            ...form,
-                            [client.id]: {
-                              baseRateId: client.id,
-                              overrideType: type,
-                              value: 0
-                            }
-                          }));
-                        }
-                        overrideTypes.update(types => ({
-                          ...types,
-                          [client.id]: type
-                        }));
-                      }}
-                    >
-                      <option value="">No override</option>
-                      <option value="percentage">Percentage</option>
-                      <option value="fixed">Fixed Rate</option>
-                    </select>
-                  </div>
-                  
-                  <div class="w-32">
-                    <label for="override-value-{client.id}" class="text-sm font-medium text-gray-700 mb-1 block">
-                      {$overrideTypes[client.id] === 'percentage' ? 'Percentage' : 'Amount'}
-                    </label>
-                    <div class="relative">
-                      <input
-                        id="override-value-{client.id}"
-                        type="number"
-                        step="0.01"
-                        class="form-control pr-6"
-                        disabled={!$overrideTypes[client.id]}
-                        value={$overrideForm[client.id]?.value ?? 0}
-                        onchange={(e) => {
-                          if ($overrideForm[client.id]) {
-                            overrideForm.update(form => ({
-                              ...form,
-                              [client.id]: {
-                                ...form[client.id]!,
-                                value: parseFloat(e.currentTarget.value)
-                              }
-                            }));
-                          }
-                        }}
-                      />
-                      {#if $overrideTypes[client.id] === 'percentage'}
-                        <span class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">%</span>
-                      {/if}
-                    </div>
-                    {#if $overrideForm[client.id]?.overrideType === 'percentage' && $overrideForm[client.id]?.value !== undefined}
-                      <div class="text-xs text-gray-500 mt-1">
-                        = {formatCurrency(($overrideForm[client.id]?.value ?? 0) * client.rate / 100)}/hr
-                      </div>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {/if}
     
     <div class="flex justify-end space-x-3 mt-6">
       {#if props.editClient}

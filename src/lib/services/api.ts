@@ -71,14 +71,18 @@ export async function deleteClient(id: string): Promise<void> {
 }
 
 // Time Entry API calls
-interface RawTimeEntry extends Omit<TimeEntry, 'date'> {
+interface RawTimeEntry extends Omit<TimeEntry, 'date' | 'startTime' | 'endTime'> {
   date: string;
+  startTime: string;
+  endTime: string | null;
 }
 
 function convertTimeEntry(entry: RawTimeEntry): TimeEntry {
   return {
     ...entry,
-    date: new Date(entry.date)
+    date: new Date(entry.date),
+    startTime: new Date(entry.startTime),
+    endTime: entry.endTime ? new Date(entry.endTime) : null
   };
 }
 
@@ -88,20 +92,71 @@ export async function getTimeEntries(): Promise<TimeEntry[]> {
 }
 
 export async function createTimeEntry(entry: NewTimeEntry): Promise<TimeEntry> {
-  if (!(entry.date instanceof Date)) {
-    throw new Error('Invalid date format');
-  }
-  const rawEntry = await post<RawTimeEntry>('/time-entries', {
-    ...entry,
-    date: entry.date.toISOString()
+  console.log('🔍 createTimeEntry - Original entry data:', entry);
+  console.log('🔍 Date fields types:', {
+    date: entry.date instanceof Date ? 'Date object' : typeof entry.date,
+    startTime: entry.startTime instanceof Date ? 'Date object' : typeof entry.startTime,
+    endTime: entry.endTime instanceof Date ? 'Date object' : typeof entry.endTime
   });
-  return convertTimeEntry(rawEntry);
+  
+  // Create a clean object with ISO string dates
+  const data: Record<string, any> = {
+    ...entry
+  };
+  
+  // Handle date fields explicitly
+  if (entry.date) {
+    data.date = entry.date instanceof Date 
+      ? entry.date.toISOString() 
+      : new Date(entry.date).toISOString();
+    console.log('🔍 Processed date field:', data.date);
+  }
+  
+  if (entry.startTime) {
+    data.startTime = entry.startTime instanceof Date 
+      ? entry.startTime.toISOString() 
+      : new Date(entry.startTime).toISOString();
+    console.log('🔍 Processed startTime field:', data.startTime);
+  }
+  
+  if (entry.endTime) {
+    data.endTime = entry.endTime instanceof Date 
+      ? entry.endTime.toISOString() 
+      : new Date(entry.endTime).toISOString();
+    console.log('🔍 Processed endTime field:', data.endTime);
+  } else {
+    data.endTime = null;
+  }
+  
+  console.log('🔍 Final data object to be sent:', data);
+  
+  try {
+    const rawEntry = await post<RawTimeEntry>('/time-entries', data);
+    console.log('✅ API response received successfully');
+    return convertTimeEntry(rawEntry);
+  } catch (error) {
+    console.error('❌ API createTimeEntry error:', error);
+    throw error;
+  }
 }
 
 export async function updateTimeEntry(id: string, entry: Partial<TimeEntry>): Promise<TimeEntry> {
-  const data = entry.date instanceof Date ? 
-    { ...entry, date: entry.date.toISOString() } : 
-    entry;
+  // Create a new object for modifications
+  const data: Record<string, any> = { ...entry };
+  
+  // Convert all date fields to ISO strings if they are Date objects
+  if (data.date instanceof Date) {
+    data.date = data.date.toISOString();
+  }
+  
+  if (data.startTime instanceof Date) {
+    data.startTime = data.startTime.toISOString();
+  }
+  
+  if (data.endTime instanceof Date) {
+    data.endTime = data.endTime.toISOString();
+  }
+  
   const rawEntry = await put<RawTimeEntry>(`/time-entries/${id}`, data);
   return convertTimeEntry(rawEntry);
 }
@@ -115,8 +170,28 @@ interface RawInvoice extends Omit<Invoice, 'date'> {
   date: string;
 }
 
-export async function getInvoices(clientId?: string): Promise<Invoice[]> {
-  const url = clientId ? `/invoices?clientId=${clientId}` : '/invoices';
+interface InvoiceFilters {
+  clientId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export async function getInvoices(filters?: InvoiceFilters): Promise<Invoice[]> {
+  const searchParams = new URLSearchParams();
+  
+  if (filters?.clientId) {
+    searchParams.set('clientId', filters.clientId);
+  }
+  if (filters?.dateFrom) {
+    searchParams.set('dateFrom', filters.dateFrom);
+  }
+  if (filters?.dateTo) {
+    searchParams.set('dateTo', filters.dateTo);
+  }
+
+  const queryString = searchParams.toString();
+  const url = queryString ? `/invoices?${queryString}` : '/invoices';
+  
   const invoices = await get<RawInvoice[]>(url);
   return invoices.map(invoice => ({
     ...invoice,

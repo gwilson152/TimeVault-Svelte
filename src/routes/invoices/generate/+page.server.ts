@@ -1,7 +1,11 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import type { PageServerLoad } from '../$types';
+import type { Client, TimeEntry, BillingRate, TicketAddon, ClientBillingRateOverride } from '$lib/types';
 import { prisma } from '$lib/server/db';
-import type { TimeEntry } from '$lib/types';
+
+interface ClientWithOverrides extends Client {
+  billingRateOverrides: ClientBillingRateOverride[];
+}
 
 interface InvoiceAddon {
   description: string;
@@ -22,14 +26,14 @@ export const load: PageServerLoad = async ({ url }) => {
   try {
     const clientId = url.searchParams.get('clientId');
     
-    // Get all billing rates (needed for rate calculations)
+    // Get all billing rates
     const billingRates = await prisma.billingRate.findMany({
       orderBy: { name: 'asc' }
     });
 
     // Get specified client and their sub-clients if a clientId is provided
-    let selectedClient = null;
-    let clientHierarchy = [];
+    let selectedClient: ClientWithOverrides | null = null;
+    let clientHierarchy: ClientWithOverrides[] = [];
     
     if (clientId) {
       selectedClient = await prisma.client.findUnique({
@@ -37,20 +41,20 @@ export const load: PageServerLoad = async ({ url }) => {
         include: {
           billingRateOverrides: true
         }
-      });
+      }) as ClientWithOverrides | null;
 
       if (!selectedClient) {
         throw error(404, 'Client not found');
       }
 
       // Get all child clients recursively
-      const getChildClients = async (parentId: string): Promise<any[]> => {
+      const getChildClients = async (parentId: string): Promise<ClientWithOverrides[]> => {
         const children = await prisma.client.findMany({
           where: { parentId },
           include: {
             billingRateOverrides: true
           }
-        });
+        }) as ClientWithOverrides[];
 
         const allChildren = [...children];
         for (const child of children) {
@@ -70,10 +74,7 @@ export const load: PageServerLoad = async ({ url }) => {
         clientId: { in: clientHierarchy.map(c => c.id) },
         billable: true,
         billed: false,
-        OR: [
-          { invoiceId: null },
-          { invoice: { id: null } }
-        ]
+        invoiceId: null
       },
       include: {
         client: {
@@ -125,18 +126,19 @@ export const actions = {
     const { clientId, entries, invoiceNumber, addons } = data;
     
     // Calculate totals from time entries
-    const timeEntriesTotals = entries.reduce((acc: { hours: number; amount: number; cost: number; profit: number }, entry: TimeEntry & { client?: { rate: number } }) => {
-      const rate = entry.client?.rate || 0;
-      const amount = entry.hours * rate;
-      const cost = entry.hours * 50;
+    const timeEntriesTotals = entries.reduce((acc: { duration: number; amount: number; cost: number; profit: number }, entry: TimeEntry & { billingRate?: BillingRate }) => {
+      // Convert duration to hours for rate calculations (duration is stored in minutes)
+      const durationInHours = entry.duration / 60;
+      const amount = entry.billingRate?.rate ? entry.billingRate.rate * durationInHours : 0;
+      const cost = entry.billingRate?.cost ? entry.billingRate.cost * durationInHours : 0;
       
       return {
-        hours: acc.hours + entry.hours,
+        duration: acc.duration + entry.duration,
         amount: acc.amount + amount,
         cost: acc.cost + cost,
         profit: acc.profit + (amount - cost)
       };
-    }, { hours: 0, amount: 0, cost: 0, profit: 0 });
+    }, { duration: 0, amount: 0, cost: 0, profit: 0 });
 
     // Calculate totals from addons
     const addonTotals = addons?.reduce((acc: { amount: number; cost: number; profit: number }, addon: InvoiceAddon) => {
@@ -155,15 +157,15 @@ export const actions = {
       data: {
         clientId,
         invoiceNumber,
-        totalHours: timeEntriesTotals.hours,
+        totalDuration: timeEntriesTotals.duration,
         totalAmount: timeEntriesTotals.amount + addonTotals.amount,
         totalCost: timeEntriesTotals.cost + addonTotals.cost,
         totalProfit: timeEntriesTotals.profit + addonTotals.profit,
         entries: {
-          connect: entries.map((entry: TimeEntry) => ({ id: entry.id }))
+          connect: entries.map(entry => ({ id: entry.id }))
         },
         addons: {
-          create: addons?.map((addon: InvoiceAddon) => ({
+          create: addons?.map(addon => ({
             description: addon.description,
             amount: addon.amount,
             cost: addon.cost || 0,
@@ -181,13 +183,13 @@ export const actions = {
     });
 
     // Update ticket addons if they were included in the invoice
-    if (addons?.some((addon: InvoiceAddon) => addon.ticketAddonId)) {
+    if (addons?.some(addon => addon.ticketAddonId)) {
       await prisma.ticketAddon.updateMany({
         where: {
           id: {
             in: addons
-              .filter((addon: InvoiceAddon) => addon.ticketAddonId)
-              .map((addon: InvoiceAddon) => addon.ticketAddonId!)
+              .filter(addon => addon.ticketAddonId)
+              .map(addon => addon.ticketAddonId!)
           }
         },
         data: {
@@ -196,6 +198,18 @@ export const actions = {
       });
     }
 
+    // Mark time entries as billed
+    await prisma.timeEntry.updateMany({
+      where: {
+        id: {
+          in: entries.map(entry => entry.id)
+        }
+      },
+      data: {
+        billed: true
+      }
+    });
+
     return { invoice };
   }
-};
+}

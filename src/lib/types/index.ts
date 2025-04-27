@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 
-export type ClientType = 'business' | 'individual' | 'organization';
+export type ClientType = 'business' | 'container' | 'individual';
 
 export interface ClientBillingRateOverride {
   id: string;
@@ -18,10 +18,12 @@ export interface BillingRate {
   id: string;
   name: string;
   rate: number;
+  cost: number;
   description?: string;
   isDefault: boolean;
   createdAt: Date;
   updatedAt: Date;
+  overrides?: ClientBillingRateOverride[];
 }
 
 export interface NewBillingRate {
@@ -45,23 +47,31 @@ export interface Client {
 export interface TimeEntry {
   id: string;
   description: string;
-  hours: number; // Stored in database as decimal hours
-  minutes?: number; // For UI representation in minutes (not stored)
-  timeFormatted?: string; // For UI representation in hh:mm format (not stored)
+  startTime: Date;
+  endTime: Date | null;
+  minutes: number; // Duration in minutes
   date: Date;
   clientId: string | null;
   ticketId: string | null;
   billable: boolean;
   billed: boolean;
+  locked: boolean;
   invoiceId: string | null;
   billingRateId: string | null;
+  client?: Client;
+  billingRate?: BillingRate;
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface TimeEntryWithClient extends TimeEntry {
   clientName: string;
-  billingRate?: BillingRate;
+  durationHours: number;
+  billingRate?: BillingRate & { rate: number };
+  invoice?: {
+    id: string;
+    invoiceNumber?: string;
+  };
 }
 
 export type NewClient = Omit<Client, 'id' | 'children' | 'billingRateOverrides' | 'createdAt' | 'updatedAt'> & {
@@ -74,17 +84,26 @@ export interface NewBillingRateOverride {
   value: number;
 }
 
-export interface NewTimeEntry {
-  description: string;
-  hours: number; // Stored in database as decimal hours
-  minutes?: number; // For UI input in minutes
-  timeFormatted?: string; // For UI input in hh:mm format
-  date: Date;
-  clientId: string | null;
-  ticketId: string | null;
-  billable: boolean;
-  billingRateId: string | null;
-}
+export const timeEntrySchema = z.object({
+  description: z.string().min(1, 'Description is required'),
+  startTime: z.date(),
+  endTime: z.date().nullable(),
+  minutes: z.number().min(1, 'Duration must be greater than 0').optional(),
+  duration: z.number().min(0.01, 'Duration must be greater than 0').optional(),
+  date: z.date(),
+  clientId: z.string().nullable(),
+  ticketId: z.string().nullable(),
+  billable: z.boolean().default(true),
+  billingRateId: z.string().nullable(),
+  billed: z.boolean().optional().default(false),
+  billedRate: z.number().optional(),
+  locked: z.boolean().optional().default(false)
+}).refine(data => data.minutes !== undefined || data.duration !== undefined, {
+  message: "Either minutes or duration must be provided",
+  path: ["minutes"]
+});
+
+export type NewTimeEntry = z.infer<typeof timeEntrySchema>;
 
 export interface InvoiceAddon {
   id: string;
@@ -103,7 +122,7 @@ export interface Invoice {
   id: string;
   invoiceNumber?: string;
   clientId: string;
-  totalHours: number;
+  totalMinutes: number;
   totalAmount: number;
   totalCost: number;
   totalProfit: number;
@@ -172,13 +191,3 @@ export interface Settings {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export const timeEntrySchema = z.object({
-  description: z.string().min(1, 'Description is required'),
-  hours: z.number().min(0.01, 'Hours must be greater than 0'),
-  date: z.date(),
-  clientId: z.string().min(1, 'Client is required'),
-  ticketId: z.string().nullable(),
-  billable: z.boolean().default(true),
-  billingRateId: z.string().nullable()
-});

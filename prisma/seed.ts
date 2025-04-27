@@ -178,7 +178,14 @@ async function main() {
       cost: 55,
       description: 'Project-based work',
       isDefault: false
-    }
+    },
+    {
+      name: 'No Charge',
+      rate: 0,
+      cost: 0,
+      description: 'No charge for this service',
+      isDefault: false
+    },
   ];
 
   for (const rate of billingRates) {

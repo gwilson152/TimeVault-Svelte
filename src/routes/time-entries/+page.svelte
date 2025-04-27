@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { fade, slide } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
-  import { GlassCard, Modal, TimeEntryForm } from '$lib/components';
+  import { GlassCard, Modal, TimeEntryForm, TimeEntryList } from '$lib/components';
   import { timeEntryStore, entriesWithClientInfo } from '$lib/stores/timeEntryStore';
   import { clientStore } from '$lib/stores/clientStore';
   import { Icon } from '@steeze-ui/svelte-icon';
@@ -12,36 +12,44 @@
   // Initialize with default values
   let entries: TimeEntryWithClient[] = [];
   let filteredEntries: TimeEntryWithClient[] = [];
-  let groupedEntries: Record<string, TimeEntryWithClient[]> = {};
   
   // Page state
   let isLoading = true;
   let showQuickEntry = false;
   let showFullEntry = false;
   let editingEntry: TimeEntry | null = null;
-  let selectedFilter = 'all';
-  let groupByDate = true;
+  let selectedFilter = 'unbilled'; // Default to unbilled entries
+  let searchText = '';
   
   // Quick entry form state
   let quickEntry = {
     description: '',
-    hours: '',
+    duration: '', // Will store minutes
     clientId: ''
   };
 
   // Handle store updates
   $: {
     if ($entriesWithClientInfo) {
-      entries = $entriesWithClientInfo.filter((entry): entry is TimeEntryWithClient => entry !== null);
+      entries = $entriesWithClientInfo
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+        .map(entry => ({
+          ...entry,
+          durationHours: entry.minutes / 60
+        }));
       filteredEntries = filterEntries(entries, selectedFilter);
-      groupedEntries = groupByDate ? groupEntriesByDate(filteredEntries) : { 'All Entries': filteredEntries };
     }
   }
 
-  $: totalHours = filteredEntries?.reduce((sum, entry) => sum + (entry?.hours || 0), 0) ?? 0;
+  $: totalHours = filteredEntries.reduce((sum, entry) => 
+    sum + (entry.durationHours || 0), 0
+  ) ?? 0;
+  
   $: totalBillableAmount = filteredEntries
-    ?.filter(entry => entry?.billable)
-    .reduce((sum, entry) => sum + ((entry?.hours || 0) * (entry?.clientRate || 0)), 0) ?? 0;
+    .filter(entry => entry.billable && entry.billingRate)
+    .reduce((sum, entry) => 
+      sum + ((entry.durationHours || 0) * (entry.billingRate?.rate || 0)), 0
+    ) ?? 0;
 
   // Load data on mount
   onMount(async () => {
@@ -75,25 +83,6 @@
     }
   }
 
-  // Group entries by date for better organization
-  function groupEntriesByDate(entries: TimeEntryWithClient[]): Record<string, TimeEntryWithClient[]> {
-    return entries.reduce((groups: Record<string, TimeEntryWithClient[]>, entry) => {
-      const dateStr = new Date(entry.date).toLocaleDateString(undefined, { 
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long', 
-        day: 'numeric'
-      });
-      
-      if (!groups[dateStr]) {
-        groups[dateStr] = [];
-      }
-      
-      groups[dateStr].push(entry);
-      return groups;
-    }, {});
-  }
-
   // Format amount as currency
   function formatCurrency(amount: number): string {
     return new Intl.NumberFormat('en-US', {
@@ -105,27 +94,35 @@
   // Handle quick entry submission
   async function handleQuickEntry(e: SubmitEvent) {
     e.preventDefault();
-    if (!quickEntry.description || !quickEntry.hours || !quickEntry.clientId) {
+    if (!quickEntry.description || !quickEntry.duration || !quickEntry.clientId) {
       alert('Please fill in all required fields');
       return;
     }
 
     try {
+      const now = new Date();
+      const durationInHours = parseFloat(quickEntry.duration) / 60; // Convert minutes to hours
       await timeEntryStore.add({
         description: quickEntry.description,
-        hours: parseFloat(quickEntry.hours),
+        duration: durationInHours, // Duration in hours as required by the interface
         clientId: quickEntry.clientId,
-        date: new Date(),
+        date: now,
+        startTime: now,
+        endTime: null,
         ticketId: null,
-        billable: true
+        billable: true,
+        billingRateId: null,
+        billed: false,  // Add required field
+        locked: false   // Add required field
       });
 
       // Reset form
       quickEntry.description = '';
-      quickEntry.hours = '';
+      quickEntry.duration = '';
       quickEntry.clientId = '';
     } catch (error) {
       console.error('Failed to add time entry:', error);
+      alert('Failed to add time entry. Please try again.');
     }
   }
 
@@ -213,15 +210,6 @@
             Billed
           </button>
         </div>
-        
-        <div class="flex items-center gap-3">
-          <button
-            class="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm transition-colors bg-white/5 hover:bg-white/10"
-            on:click={() => groupByDate = !groupByDate}
-          >
-            <span>{groupByDate ? 'Ungroup' : 'Group by Date'}</span>
-          </button>
-        </div>
       </div>
     </GlassCard>
 
@@ -258,15 +246,15 @@
               </div>
 
               <div class="form-field">
-                <label for="quick-hours" class="form-label">Hours</label>
+                <label for="quick-duration" class="form-label">Duration (minutes)</label>
                 <input
-                  id="quick-hours"
+                  id="quick-duration"
                   type="number"
-                  step="0.25"
-                  min="0.25"
-                  bind:value={quickEntry.hours}
+                  step="1"
+                  min="1"
+                  bind:value={quickEntry.duration}
                   class="form-input"
-                  placeholder="0.00"
+                  placeholder="0"
                   required
                 />
               </div>
@@ -297,65 +285,8 @@
       {/if}
     </GlassCard>
 
-    <!-- Time Entries List -->
-    {#if filteredEntries.length === 0}
-      <GlassCard className="p-6">
-        <div class="text-center py-8" transition:fade={{ duration: 200 }}>
-          <p class="text-gray-400">No time entries found</p>
-        </div>
-      </GlassCard>
-    {:else}
-      {#each Object.entries(groupedEntries) as [dateGroup, entries]}
-        <div transition:fade|local={{ duration: 200 }}>
-          <GlassCard className="p-0 overflow-hidden">
-            {#if groupByDate}
-              <div class="px-5 py-3 border-b border-white/5 bg-white/2">
-                <h3 class="text-sm font-medium">{dateGroup}</h3>
-              </div>
-            {/if}
-            
-            <div class="divide-y divide-white/5">
-              {#each entries as entry}
-                <button 
-                  class="w-full text-left p-5 container-glass border-none hover:bg-container-glass-hover transition-colors"
-                  on:click={() => editEntry(entry)}
-                  transition:fade={{duration: 200}}
-                >
-                  <div class="flex justify-between items-start">
-                    <div>
-                      <p class="font-medium">{entry.description}</p>
-                      <p class="text-sm text-gray-400 mt-1">
-                        {entry.clientName} • {entry.hours} {entry.hours === 1 ? 'hour' : 'hours'}
-                        {#if !groupByDate}
-                          • {formatDate(entry.date)}
-                        {/if}
-                      </p>
-                    </div>
-                    <div class="text-right">
-                      <p class="font-medium">
-                        {entry.clientRate ? formatCurrency(entry.hours * entry.clientRate) : 'N/A'}
-                      </p>
-                      <div class="flex gap-2 mt-1 justify-end">
-                        {#if entry.billable}
-                          <span class="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full">
-                            Billable
-                          </span>
-                        {/if}
-                        {#if entry.billed}
-                          <span class="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded-full">
-                            Billed
-                          </span>
-                        {/if}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              {/each}
-            </div>
-          </GlassCard>
-        </div>
-      {/each}
-    {/if}
+    <!-- Time Entries List (using new datatable component) -->
+    <TimeEntryList showForm={false} filter={selectedFilter} />
   {/if}
 </div>
 
@@ -365,22 +296,19 @@
   title={editingEntry ? 'Edit Time Entry' : 'New Time Entry'}
   on:close={() => {
     showFullEntry = false;
-    editingEntry = null; // Ensure editingEntry is reset
+    editingEntry = null;
   }}
 >
   <div in:fade={{ duration: 200 }}>
     <TimeEntryForm
-      entry={editingEntry || {
-        description: '',
-        hours: 1,
-        date: new Date(),
-        clientId: '',
-        ticketId: null,
-        billable: true
-      }}
-      onSubmit={() => {
+      editEntry={editingEntry}
+      onSave={() => {
         showFullEntry = false;
-        editingEntry = null; // Ensure editingEntry is reset after submission
+        editingEntry = null;
+      }}
+      onCancel={() => {
+        showFullEntry = false;
+        editingEntry = null;
       }}
     />
   </div>

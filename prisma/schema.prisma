@@ -14,132 +14,136 @@ datasource db {
 }
 
 model Client {
-  id          String      @id @default(uuid())
-  name        String
-  rate        Float
-  type        String      @default("business") // "business" | "individual" | "organization"
-  parentId    String?
-  parent      Client?     @relation("ClientHierarchy", fields: [parentId], references: [id])
-  children    Client[]    @relation("ClientHierarchy")
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  timeEntries TimeEntry[]
-  invoices    Invoice[]
-  tickets     Ticket[]
+  id                   String                      @id @default(uuid())
+  name                 String
+  rate                 Float
+  type                 String                      @default("business") // "business" | "container" | "individual"
+  parentId             String?
+  parent               Client?                     @relation("ClientHierarchy", fields: [parentId], references: [id])
+  children             Client[]                    @relation("ClientHierarchy")
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  timeEntries          TimeEntry[]
+  invoices             Invoice[]
+  tickets              Ticket[]
   billingRateOverrides ClientBillingRateOverride[]
 
-  @@map("clients")
   @@index([parentId])
+  @@map("clients")
 }
 
 model TimeEntry {
-  id          String    @id @default(uuid())
-  description String
-  hours       Float
-  date        DateTime
-  clientId    String?
-  billable    Boolean   @default(true)
-  billed      Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  client      Client?   @relation(fields: [clientId], references: [id])
-  invoice     Invoice?  @relation(fields: [invoiceId], references: [id])
-  invoiceId   String?
-  ticketId    String?
-  ticket      Ticket?   @relation(fields: [ticketId], references: [id])
+  id            String       @id @default(uuid())
+  description   String
+  startTime     DateTime
+  endTime       DateTime?
+  minutes       Float        @default(0) // Duration in minutes (calculated from start/end or manually set)
+  date          DateTime
+  clientId      String?
+  billable      Boolean      @default(true)
+  billed        Boolean      @default(false)
+  billedRate    Float? // Rate at which the time entry was billed (considers manual rate on invoice)
+  locked        Boolean      @default(false) // Prevents editing of the time entry  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  client        Client?      @relation(fields: [clientId], references: [id])
+  invoice       Invoice?     @relation(fields: [invoiceId], references: [id])
+  invoiceId     String?
+  ticketId      String?
+  ticket        Ticket?      @relation(fields: [ticketId], references: [id])
   billingRateId String?
-  billingRate BillingRate? @relation(fields: [billingRateId], references: [id])
+  billingRate   BillingRate? @relation(fields: [billingRateId], references: [id])
 
-  @@map("time_entries")
   @@index([ticketId])
   @@index([clientId])
   @@index([invoiceId])
   @@index([billingRateId])
+  @@map("time_entries")
 }
 
 model Invoice {
-  id           String         @id @default(uuid())
-  invoiceNumber String?      // Manual invoice number
-  clientId     String
-  totalHours   Float
-  totalAmount  Float
-  totalCost    Float         @default(0)
-  totalProfit  Float         @default(0)
-  date         DateTime      @default(now())
-  client       Client        @relation(fields: [clientId], references: [id])
-  entries      TimeEntry[]
-  addons       InvoiceAddon[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id            String         @id @default(uuid())
+  invoiceNumber String? // Manual invoice number
+  clientId      String
+  totalMinutes  Float
+  totalAmount   Float
+  totalCost     Float          @default(0)
+  totalProfit   Float          @default(0)
+  date          DateTime       @default(now())
+  client        Client         @relation(fields: [clientId], references: [id])
+  entries       TimeEntry[]
+  addons        InvoiceAddon[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
-  @@map("invoices")
   @@index([clientId])
+  @@map("invoices")
 }
 
 model InvoiceAddon {
-  id          String   @id @default(uuid())
-  invoiceId   String
-  description String
-  amount      Float    // Price per unit
-  cost        Float    @default(0)  // Cost per unit
-  quantity    Float    @default(1)  // Number of units
-  profit      Float    @default(0)  // Calculated: (amount * quantity) - (cost * quantity)
+  id            String       @id @default(uuid())
+  invoiceId     String
+  description   String
+  amount        Float // Price per unit
+  cost          Float        @default(0) // Cost per unit
+  quantity      Float        @default(1) // Number of units
+  profit        Float        @default(0) // Calculated: (amount * quantity) - (cost * quantity)
   ticketAddonId String?
-  ticketAddon TicketAddon? @relation(fields: [ticketAddonId], references: [id])
-  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  ticketAddon   TicketAddon? @relation(fields: [ticketAddonId], references: [id])
+  invoice       Invoice      @relation(fields: [invoiceId], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
-  @@map("invoice_addons")
   @@index([invoiceId])
   @@index([ticketAddonId])
+  @@map("invoice_addons")
 }
 
 model TicketAddon {
-  id          String   @id @default(uuid())
-  ticketId    String
-  description String
-  amount      Float
-  cost        Float    @default(0)
-  quantity    Float    @default(1)
-  profit      Float    @default(0)
-  billed      Boolean  @default(false)
-  ticket      Ticket   @relation(fields: [ticketId], references: [id])
+  id            String         @id @default(uuid())
+  ticketId      String
+  description   String
+  amount        Float
+  cost          Float          @default(0)
+  quantity      Float          @default(1)
+  profit        Float          @default(0)
+  billed        Boolean        @default(false)
+  ticket        Ticket         @relation(fields: [ticketId], references: [id])
   invoiceAddons InvoiceAddon[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
-  @@map("ticket_addons")
   @@index([ticketId])
+  @@map("ticket_addons")
 }
 
 model Ticket {
-  id          String      @id @default(cuid())
+  id          String        @id @default(cuid())
   title       String
   description String?
-  statusId    String      @default("open")
+  statusId    String        @default("open")
   clientId    String
-  client      Client      @relation(fields: [clientId], references: [id])
+  client      Client        @relation(fields: [clientId], references: [id])
   timeEntries TimeEntry[]
   addons      TicketAddon[]
-  status      TicketStatus @relation(fields: [statusId], references: [id])
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  status      TicketStatus  @relation(fields: [statusId], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   @@index([clientId])
   @@index([statusId])
 }
 
 model TicketStatus {
-  id          String   @id @default(uuid())
-  name        String   @unique
-  color       String   @default("#718096") // Default gray color
-  isDefault   Boolean  @default(false)
-  isClosed    Boolean  @default(false)
-  sortOrder   Int      @default(0)
-  tickets     Ticket[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  name      String   @unique
+  color     String   @default("#718096") // Default gray color
+  isDefault Boolean  @default(false)
+  isClosed  Boolean  @default(false)
+  sortOrder Int      @default(0)
+  tickets   Ticket[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("ticket_statuses")
 }
@@ -159,14 +163,14 @@ model Settings {
 }
 
 model BillingRate {
-  id          String   @id @default(uuid())
-  name        String   @unique
+  id          String                      @id @default(uuid())
+  name        String                      @unique
   rate        Float
-  cost        Float    @default(0)  // Internal cost rate for profit calculations
+  cost        Float                       @default(0) // Internal cost rate for profit calculations
   description String?
-  isDefault   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isDefault   Boolean                     @default(false)
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
   overrides   ClientBillingRateOverride[]
   timeEntries TimeEntry[]
 
@@ -177,7 +181,7 @@ model ClientBillingRateOverride {
   id           String      @id @default(uuid())
   clientId     String
   baseRateId   String
-  overrideType String      // "percentage" | "fixed"
+  overrideType String // "percentage" | "fixed"
   value        Float
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
@@ -185,7 +189,7 @@ model ClientBillingRateOverride {
   baseRate     BillingRate @relation(fields: [baseRateId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, baseRateId])
-  @@map("client_billing_rate_overrides")
   @@index([clientId])
   @@index([baseRateId])
+  @@map("client_billing_rate_overrides")
 }

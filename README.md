@@ -92,7 +92,7 @@ Time entries represent blocks of work that can be associated with clients. Each 
 - Billed status
 
 ### Clients
-Clients are organizations or individuals who you perform work for. Each client has:
+Clients are businesses or individuals who you perform work for. Each client has:
 - Name
 - Hourly rate
 

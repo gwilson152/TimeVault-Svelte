@@ -6,6 +6,7 @@
   import GlassCard from './GlassCard.svelte';
 
   export let clientId: string | undefined = undefined;
+  export let onEdit: ((ticket: Ticket) => void) | undefined = undefined;
 
   let tickets: Ticket[] = [];
 
@@ -79,12 +80,14 @@
             {/if}
           </div>
           <div class="flex space-x-2">
-            <a
-              href="/tickets/edit/{ticket.id}"
-              class="btn btn-secondary"
-            >
-              Edit
-            </a>
+            {#if onEdit}
+              <button
+                class="btn btn-secondary"
+                on:click={() => onEdit(ticket)}
+              >
+                Edit
+              </button>
+            {/if}
           </div>
         </div>
       </GlassCard>

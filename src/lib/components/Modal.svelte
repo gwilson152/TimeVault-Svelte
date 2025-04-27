@@ -38,7 +38,7 @@
     on:keydown={(e) => { if (e.key === 'Escape') dispatch('close'); }}
   >
     <div class="modal-container {width}">
-      <div class="container-glass">
+      <div class="glass-card bg-gray-50 shadow-lg rounded-lg overflow-hidden">
         {#if title}
           <div class="px-6 py-4 border-b border-gray-200">
             <h3 id="modal-title" class="text-lg font-semibold">{title}</h3>

@@ -1,156 +1,321 @@
-import { writable, derived } from 'svelte/store';
+import { writable, derived, type Writable } from 'svelte/store';
 import type { TimeEntry, NewTimeEntry } from '$lib/types';
 import * as api from '$lib/services/api';
 import { clientStore } from './clientStore';
 import { settingsStore } from './settingsStore';
-import { formattedToHours, minutesToHours, hoursToMinutes, hoursToFormatted } from '$lib/utils/timeUtils';
+import { calculateDurationInMinutes, calculateEndTime } from '$lib/utils/timeUtils';
 
-function createTimeEntryStore() {
+interface TimeEntryStore {
+  subscribe: Writable<TimeEntry[]>['subscribe'];
+  load: () => Promise<void>;
+  add: (entry: NewTimeEntry) => Promise<TimeEntry>;
+  update: (id: string, entry: Partial<NewTimeEntry>) => Promise<TimeEntry>;
+  remove: (id: string) => Promise<void>;
+  markAsBilled: (entryIds: string[]) => Promise<void>;
+  getByClientId: (clientId: string) => TimeEntry[];
+  getUnbilledByClientId: (clientId: string, includeSubClients?: boolean) => TimeEntry[];
+  reset: () => void;
+}
+
+function createTimeEntryStore(): TimeEntryStore {
   const { subscribe, set, update } = writable<TimeEntry[]>([]);
   let initialized = false;
 
+  function logDebug(action: string, data?: any) {
+    console.debug(`⏱️ TimeEntryStore [${action}]`, data || '');
+  }
+
   function formatTimeEntry(entry: TimeEntry): TimeEntry {
+    // Ensure we have properly formatted dates
+    const startTime = entry.startTime ? new Date(entry.startTime) : new Date();
+    const endTime = entry.endTime ? new Date(entry.endTime) : null;
+    const minutes = entry.minutes || (endTime ? calculateDurationInMinutes(startTime, endTime) : 0);
+
+    logDebug('formatTimeEntry', { 
+      id: entry.id,
+      startTime,
+      endTime,
+      minutes
+    });
+
     return {
       ...entry,
-      minutes: hoursToMinutes(entry.hours),
-      timeFormatted: hoursToFormatted(entry.hours)
+      startTime,
+      endTime,
+      minutes,
+      date: entry.date ? new Date(entry.date) : startTime
     };
   }
 
-  return {
+  function getChildClients(store: TimeEntryStore, parentId: string): string[] {
+    logDebug('getChildClients:start', { parentId });
+    const children: string[] = [];
+    let entries: TimeEntry[] = [];
+
+    store.subscribe(value => {
+      entries = value;
+    })();
+
+    entries.forEach(entry => {
+      if (entry.client?.parentId === parentId) {
+        children.push(entry.client.id);
+        children.push(...getChildClients(store, entry.client.id));
+      }
+    });
+
+    logDebug('getChildClients:complete', { parentId, childCount: children.length });
+    return children;
+  }
+
+  function processClient(store: TimeEntryStore, cid: string, seen: Set<string>): TimeEntry[] {
+    logDebug('processClient:start', { clientId: cid });
+    const result: TimeEntry[] = [];
+    let entries: TimeEntry[] = [];
+
+    store.subscribe(value => {
+      entries = value;
+    })();
+
+    entries
+      .filter(e => e.clientId === cid && e.billable && !e.billed)
+      .forEach(entry => {
+        if (!seen.has(entry.id)) {
+          result.push(entry);
+          seen.add(entry.id);
+        }
+      });
+
+    logDebug('processClient:complete', { 
+      clientId: cid, 
+      entriesFound: result.length 
+    });
+    return result;
+  }
+
+  const store: TimeEntryStore = {
     subscribe,
-    
+
     async load() {
+      logDebug('load:start', { initialized });
       if (initialized) return;
-      
+
       try {
         const entries = await api.getTimeEntries();
+        logDebug('load:success', { entryCount: entries.length });
         set(entries.map(formatTimeEntry));
         initialized = true;
       } catch (error) {
+        logDebug('load:error', error);
         console.error('Failed to load time entries:', error);
-        set([]); // Set empty array on error
+        set([]);
         throw error;
       }
     },
-    
+
     async add(entry: NewTimeEntry) {
+      logDebug('add:start', { 
+        description: entry.description,
+        clientId: entry.clientId,
+        minutes: entry.minutes 
+      });
+
       try {
-        // Convert time to hours based on provided format
-        let hours = entry.hours;
-        if (entry.minutes !== undefined) {
-          hours = minutesToHours(entry.minutes);
-        } else if (entry.timeFormatted) {
-          const converted = formattedToHours(entry.timeFormatted);
-          if (converted === null) {
-            throw new Error('Invalid time format');
-          }
-          hours = converted;
+        // Ensure all date fields are proper Date objects
+        const formattedEntry = {
+          ...entry,
+          startTime: entry.startTime instanceof Date ? entry.startTime : new Date(entry.startTime || new Date()),
+          endTime: entry.endTime ? (entry.endTime instanceof Date ? entry.endTime : new Date(entry.endTime)) : null,
+          minutes: entry.minutes || 0,
+          date: entry.date instanceof Date ? entry.date : new Date(entry.date || new Date())
+        };
+
+        // Calculate minutes or end time if needed
+        if (!formattedEntry.minutes && formattedEntry.endTime) {
+          formattedEntry.minutes = calculateDurationInMinutes(formattedEntry.startTime, formattedEntry.endTime);
+        } else if (formattedEntry.minutes && !formattedEntry.endTime) {
+          formattedEntry.endTime = calculateEndTime(formattedEntry.startTime, formattedEntry.minutes);
         }
 
-        const newEntry = await api.createTimeEntry({
-          ...entry,
-          hours
+        logDebug('add:formatted', {
+          ...formattedEntry,
+          startTime: formattedEntry.startTime instanceof Date ? 'Date object' : typeof formattedEntry.startTime,
+          endTime: formattedEntry.endTime instanceof Date ? 'Date object' : typeof formattedEntry.endTime,
+          date: formattedEntry.date instanceof Date ? 'Date object' : typeof formattedEntry.date
         });
-        
+
+        const newEntry = await api.createTimeEntry(formattedEntry);
+        logDebug('add:success', { id: newEntry.id });
         update(entries => [...entries, formatTimeEntry(newEntry)]);
         return newEntry;
       } catch (error) {
+        logDebug('add:error', error);
         console.error('Failed to add time entry:', error);
         throw error;
       }
     },
-    
+
     async update(id: string, entry: Partial<NewTimeEntry>) {
+      logDebug('update:start', { id, changes: entry });
       try {
-        // Convert time if provided
-        let hours = entry.hours;
-        if (entry.minutes !== undefined) {
-          hours = minutesToHours(entry.minutes);
-        } else if (entry.timeFormatted) {
-          const converted = formattedToHours(entry.timeFormatted);
-          if (converted === null) {
-            throw new Error('Invalid time format');
-          }
-          hours = converted;
+        // Get the current entry to check if it's locked
+        let entries: TimeEntry[] = [];
+        store.subscribe(value => {
+          entries = value;
+        })();
+        
+        const currentEntry = entries.find(e => e.id === id);
+        
+        // Prevent updates to locked or billed entries
+        if (currentEntry && (currentEntry.locked || currentEntry.billed)) {
+          const errorMessage = 'Cannot update a locked time entry. This entry is associated with an invoice.';
+          logDebug('update:error', errorMessage);
+          throw new Error(errorMessage);
         }
 
-        const updatedEntry = await api.updateTimeEntry(id, {
-          ...entry,
-          hours
-        });
-        
-        update(entries => entries.map(e => 
+        let updatedFields: Partial<NewTimeEntry> = { ...entry };
+
+        // If we have both start and end time, calculate minutes
+        if (entry.startTime && entry.endTime) {
+          updatedFields.minutes = calculateDurationInMinutes(entry.startTime, entry.endTime);
+          logDebug('update:calculatedminutes', { 
+            minutes: updatedFields.minutes,
+            startTime: entry.startTime,
+            endTime: entry.endTime
+          });
+        }
+        // If we have start time and minutes, calculate end time
+        else if (entry.startTime && entry.minutes) {
+          updatedFields.endTime = calculateEndTime(entry.startTime, entry.minutes);
+          logDebug('update:calculatedEndTime', {
+            endTime: updatedFields.endTime,
+            startTime: entry.startTime,
+            minutes: entry.minutes
+          });
+        }
+
+        const updatedEntry = await api.updateTimeEntry(id, updatedFields);
+        logDebug('update:success', { id });
+
+        update(entries => entries.map(e =>
           e.id === id ? formatTimeEntry(updatedEntry) : e
         ));
-        
+
         return updatedEntry;
       } catch (error) {
+        logDebug('update:error', error);
         console.error('Failed to update time entry:', error);
         throw error;
       }
     },
-    
+
     async remove(id: string) {
+      logDebug('remove:start', { id });
       try {
+        // Get the current entry to check if it's locked
+        let entries: TimeEntry[] = [];
+        store.subscribe(value => {
+          entries = value;
+        })();
+        
+        const currentEntry = entries.find(e => e.id === id);
+        
+        // Prevent deletion of locked or billed entries
+        if (currentEntry && (currentEntry.locked || currentEntry.billed)) {
+          const errorMessage = 'Cannot delete a locked time entry. This entry is associated with an invoice.';
+          logDebug('remove:error', errorMessage);
+          throw new Error(errorMessage);
+        }
+        
         await api.deleteTimeEntry(id);
+        logDebug('remove:success', { id });
         update(entries => entries.filter(e => e.id !== id));
       } catch (error) {
+        logDebug('remove:error', error);
         console.error('Failed to delete time entry:', error);
         throw error;
       }
     },
 
-    getUnbilledByClientId(clientId: string, includeSubClients: boolean = true) {
+    async markAsBilled(entryIds: string[]) {
+      logDebug('markAsBilled:start', { count: entryIds.length });
+      try {
+        await Promise.all(entryIds.map(id =>
+          api.updateTimeEntry(id, { 
+            billed: true, 
+            locked: true // Also lock entries when they're marked as billed
+          })
+        ));
+
+        logDebug('markAsBilled:success', { entryIds });
+        update(entries => entries.map(entry =>
+          entryIds.includes(entry.id)
+            ? { ...entry, billed: true, locked: true }
+            : entry
+        ));
+      } catch (error) {
+        logDebug('markAsBilled:error', error);
+        console.error('Failed to mark entries as billed:', error);
+        throw error;
+      }
+    },
+
+    getByClientId(clientId: string) {
+      logDebug('getByClientId:start', { clientId });
+      let entries: TimeEntry[] = [];
+      store.subscribe(value => {
+        entries = value;
+      })();
+
+      const filtered = entries.filter(entry => 
+        entry.clientId === clientId && entry.billable && !entry.billed
+      );
+      logDebug('getByClientId:complete', { 
+        clientId, 
+        entriesFound: filtered.length 
+      });
+      return filtered;
+    },
+
+    getUnbilledByClientId(clientId: string, includeSubClients = true) {
+      logDebug('getUnbilledByClientId:start', { 
+        clientId, 
+        includeSubClients 
+      });
+      
       const result: TimeEntry[] = [];
       const seen = new Set<string>();
 
-      function addEntry(entry: TimeEntry) {
-        if (!seen.has(entry.id)) {
-          result.push(entry);
-          seen.add(entry.id);
-        }
-      }
+      // Add entries for the main client
+      result.push(...processClient(store, clientId, seen));
 
-      function processClient(cid: string) {
-        this.subscribe(entries => {
-          entries
-            .filter(e => e.clientId === cid && e.billable && !e.billed)
-            .forEach(addEntry);
+      if (includeSubClients) {
+        // Get all child clients recursively and process their entries
+        const childClientIds = getChildClients(store, clientId);
+        logDebug('getUnbilledByClientId:processing children', { 
+          clientId,
+          childCount: childClientIds.length
+        });
+        
+        childClientIds.forEach(cid => {
+          result.push(...processClient(store, cid, seen));
         });
       }
 
-      // Add entries for the main client
-      processClient(clientId);
-
-      if (includeSubClients) {
-        // Get all child clients recursively
-        function getChildClients(parentId: string): string[] {
-          const children: string[] = [];
-          this.subscribe(entries => {
-            entries.forEach(entry => {
-              if (entry.client?.parentId === parentId) {
-                children.push(entry.client.id);
-                children.push(...getChildClients(entry.client.id));
-              }
-            });
-          });
-          return children;
-        }
-
-        // Process all child clients
-        const childClientIds = getChildClients(clientId);
-        childClientIds.forEach(processClient);
-      }
-
+      logDebug('getUnbilledByClientId:complete', { 
+        clientId,
+        totalEntries: result.length
+      });
       return result;
     },
-    
+
     reset() {
+      logDebug('reset');
       set([]);
       initialized = false;
     }
   };
+
+  return store;
 }
 
 export const timeEntryStore = createTimeEntryStore();
@@ -158,33 +323,36 @@ export const timeEntryStore = createTimeEntryStore();
 // Derived store that includes client and billing rate information
 export const entriesWithClientInfo = derived(
   [timeEntryStore, clientStore, settingsStore.billingRates],
-  ([$timeEntries, $clients, $billingRates]) => {
-    if (!$timeEntries || !$clients || !$billingRates) return [];
-    
-    return $timeEntries.map(entry => {
-      if (!entry) return null;
-      const client = entry.clientId ? $clients.find(c => c.id === entry.clientId) : null;
+  ([$timeEntryStore, $clientStore, $billingRates]) => {
+    return $timeEntryStore.map(entry => {
+      const client = entry.clientId ? $clientStore.find(c => c.id === entry.clientId) : null;
       const billingRate = entry.billingRateId ? $billingRates.find(r => r.id === entry.billingRateId) : null;
-      
+
       // Get client billing rate override if it exists
       let effectiveRate = billingRate?.rate ?? 0;
       if (client && billingRate) {
         const override = client.billingRateOverrides.find(o => o.baseRateId === billingRate.id);
         if (override) {
-          effectiveRate = override.overrideType === 'fixed' 
-            ? override.value 
+          effectiveRate = override.overrideType === 'fixed'
+            ? override.value
             : billingRate.rate * (override.value / 100);
         }
       }
-      
+
       return {
         ...entry,
         clientName: client?.name || 'Unknown Client',
         billingRate: billingRate ? {
           ...billingRate,
           rate: effectiveRate
+        } : undefined,
+        // Add invoice info if entry is billed
+        invoice: entry.invoiceId ? {
+          id: entry.invoiceId,
+          // Invoice number will be fetched from the server when needed
+          invoiceNumber: undefined
         } : undefined
       };
-    }).filter(Boolean);
+    });
   }
 );

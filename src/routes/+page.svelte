@@ -2,14 +2,14 @@
   import { timeEntryStore, entriesWithClientInfo } from '$lib/stores/timeEntryStore';
   import { clientStore } from '$lib/stores/clientStore';
   import { ticketStore } from '$lib/stores/ticketStore';
-  import { formatCurrency, formatHours } from '$lib/utils/invoiceUtils';
+  import { formatCurrency, formatTime } from '$lib/utils/invoiceUtils';
   import { onMount } from 'svelte';
 
   // Calculate dashboard metrics
   $: totalUnbilledHours = $entriesWithClientInfo
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
     .filter(entry => !entry.billed && entry.billable)
-    .reduce((sum, entry) => sum + entry.hours, 0);
+    .reduce((sum, entry) => sum + entry.duration, 0);
 
   $: totalUnbilledAmount = $entriesWithClientInfo
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
@@ -25,7 +25,7 @@
         rate = override.value;
       }
 
-      return sum + (entry.hours * rate);
+      return sum + (entry.duration * rate);
     }, 0);
 
   $: activeClients = $clientStore.filter(client => {
@@ -50,7 +50,7 @@
         .reduce((sum, entry) => {
           const override = client.billingRateOverrides[0];
           const rate = override ? override.value : 0;
-          return sum + (entry.hours * rate);
+          return sum + (entry.duration * rate);
         }, 0);
 
       return {
@@ -111,7 +111,7 @@
                   <div class="text-xs text-gray-500">{entry.clientName}</div>
                 </td>
                 <td class="px-3 py-2 whitespace-nowrap text-sm text-right">
-                  {entry.hours.toFixed(1)}
+                  {entry.duration.toFixed(1)}
                 </td>
               </tr>
             {/each}
