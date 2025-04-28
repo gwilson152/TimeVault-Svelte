@@ -3,7 +3,8 @@
   import { writable } from 'svelte/store';
   import { clientStore } from '$lib/stores/clientStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
-  import { GlassCard } from '$lib/components';
+  import { settingsStore } from '$lib/stores/settingsStore';
+  import { GlassCard, ClientSearch } from '$lib/components';
   import type { Client, TimeEntry } from '$lib/types';
   import { minutesToFormatted } from '$lib/utils/timeUtils';
   import { formatCurrency } from '$lib/utils/invoiceUtils';
@@ -24,7 +25,6 @@
   let clients = $state<Client[]>([]);
   let allEntries = $state<TimeEntry[]>([]);
   let clientHierarchy = $state<Client[]>([]);
-  let clientSearchText = $state('');
 
   let selectedEntries = writable<Record<string, boolean>>({});
   let invoiceNumber = writable<string>('');
@@ -36,52 +36,16 @@
   let timeFormat = writable<'minutes' | 'minutes' | 'formatted'>('minutes');
 
   const activeClients = clientStore.clientsWithUnbilledTime;
-
-  function buildClientOptions(): { value: string, label: string, indent: number }[] {
-    const options: { value: string, label: string, indent: number }[] = [];
-    
-    function addClient(client: Client, level: number = 0) {
-      let unbilledClients: Client[] = [];
-      activeClients.subscribe(value => { unbilledClients = value; })();
-      
-      if (!unbilledClients.some(c => c.id === client.id)) return;
-      
-      options.push({
-        value: client.id,
-        label: client.name,
-        indent: level
-      });
-      
-      const children = $clientStore
-        .filter(c => c.parentId === client.id)
-        .sort((a, b) => a.name.localeCompare(b.name));
-        
-      children.forEach(child => addClient(child, level + 1));
-    }
-    
-    const rootClients = $clientStore
-      .filter(c => !c.parentId)
-      .sort((a, b) => a.name.localeCompare(b.name));
-    
-    rootClients.forEach(client => addClient(client));
-    
-    return options;
-  }
-
-  let filteredClientOptions = $state<{ value: string, label: string, indent: number }[]>([]);
-
-  // Watch for changes in clientSearchText and rebuild options
-  $effect(() => {
-    filteredClientOptions = buildClientOptions().filter(option =>
-      !clientSearchText || 
-      option.label.toLowerCase().includes(clientSearchText.toLowerCase())
-    );
-  });
+  const billingRates = settingsStore.billingRates;
 
   onMount(async () => {
     try {
-      await clientStore.load();
-      await timeEntryStore.load();
+      // Load all required data in parallel
+      await Promise.all([
+        clientStore.load(),
+        timeEntryStore.load(),
+        settingsStore.load() // Load settings to get billing rates
+      ]);
       
       if (clientId) {
         selectedClientId.set(clientId);
@@ -109,24 +73,52 @@
     clientHierarchy = clientStore.getClientHierarchy(cid);
     if (clientHierarchy.length === 0) return;
     
-    const clientIds = clientHierarchy.map(c => c.id);
+    // Get unbilled entries with client info from the store
+    const entries = timeEntryStore.getUnbilledByClientId(cid, true);
     
-    let entries: TimeEntry[] = [];
-    timeEntryStore.subscribe(value => { entries = value; })();
+    // Import client utils function for effective rate calculation
+    const { getEffectiveBillingRateOverride } = require('$lib/utils/clientUtils');
     
-    const filteredEntries = entries.filter((entry: TimeEntry) => 
-      entry.billable && 
-      !entry.billed && 
-      entry.clientId && 
-      clientIds.includes(entry.clientId)
-    );
+    // Get all clients for hierarchy lookup
+    clients = [];
+    clientStore.subscribe(value => {
+      clients = value;
+    })();
     
+    // Map entries to filtered entries with billing rates
+    const filteredEntries = entries.map(entry => {
+      const client = clientHierarchy.find(c => c.id === entry.clientId);
+      const billingRate = entry.billingRateId ? 
+        $billingRates.find(r => r.id === entry.billingRateId) : null;
+      
+      // Calculate effective rate including client overrides with inheritance
+      let effectiveRate = billingRate?.rate ?? 0;
+      if (billingRate && entry.clientId) {
+        const override = getEffectiveBillingRateOverride(clients, entry.clientId, billingRate.id);
+        if (override) {
+          effectiveRate = override.overrideType === 'fixed'
+            ? override.value
+            : billingRate.rate * (override.value / 100);
+        }
+      }
+
+      return {
+        ...entry,
+        client,
+        billingRate: billingRate ? {
+          ...billingRate,
+          rate: effectiveRate
+        } : undefined
+      };
+    });
+
+    allEntries = filteredEntries;
+
+    // Initialize all entries as selected
     const initialSelection: Record<string, boolean> = {};
-    filteredEntries.forEach((entry: TimeEntry) => {
+    filteredEntries.forEach(entry => {
       initialSelection[entry.id] = true;
     });
-    
-    allEntries = filteredEntries;
     selectedEntries.set(initialSelection);
   }
 
@@ -159,12 +151,13 @@
     return allEntries
       .filter(entry => $selectedEntries[entry.id])
       .reduce((total, entry) => {
-        const client = clients.find(c => c.id === entry.clientId);
-        const billingRate = client?.billingRateOverrides?.[0]?.value || 0;
-        const hourlyDuration = entry.minutes / 60;
+        const amount = entry.billingRate?.rate 
+          ? (entry.minutes / 60) * entry.billingRate.rate 
+          : 0;
+          
         return {
           minutes: total.minutes + entry.minutes,
-          amount: total.amount + (hourlyDuration * billingRate)
+          amount: total.amount + amount
         };
       }, { minutes: 0, amount: 0 });
   }
@@ -234,43 +227,28 @@
   }
 </script>
 
-<div class="space-y-6">
-  <GlassCard className="p-6">
-    <h2 class="text-xl font-semibold mb-4">Generate Invoice</h2>
+<div class="space-y-4">
+  <GlassCard className="p-4">
+    <h2 class="text-xl font-semibold mb-2">Generate Invoice</h2>
     
     {#if $isLoading}
-      <div class="flex items-center justify-center py-6">
+      <div class="flex items-center justify-center py-4">
         <div class="animate-pulse text-gray-400">Loading...</div>
       </div>
     {:else}
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="form-field">
-          <label for="client" class="form-label">Client</label>
-          <div class="relative">
-            <input 
-              type="text"
-              placeholder="Search clients..."
-              class="form-input mb-2"
-              bind:value={clientSearchText}
-            />
-            <select
-              id="client"
-              bind:value={$selectedClientId}
-              class="form-select"
-              disabled={$isGenerating}
-              size={8}
-            >
-              <option value="">Select a client</option>
-              {#each filteredClientOptions as option}
-                <option value={option.value}>
-                  {'  '.repeat(option.indent)}{option.indent > 0 ? '└─ ' : ''}{option.label}
-                </option>
-              {/each}
-            </select>
-          </div>
-          <span class="form-hint">
-            Only showing clients with unbilled time. Time entries for selected client and sub-clients will be included.
-          </span>
+          <ClientSearch
+            selectedClientId={$selectedClientId}
+            on:change={(e) => {
+              selectedClientId.set(e.detail);
+            }}
+            label="Client"
+            placeholder="Select a client to invoice"
+            hint="Only showing clients with unbilled time. Time entries for selected client and sub-clients will be included."
+            showSearch={true}
+            fieldClassName="min-h-[120px]"
+          />
         </div>
 
         <div class="form-field">
@@ -353,8 +331,9 @@
           </thead>
           <tbody>
             {#each allEntries as entry}
-              {@const client = clients.find(c => c.id === entry.clientId)}
-              {@const billingRate = client?.billingRateOverrides?.[0]?.value || 0}
+              {@const amount = entry.billingRate?.rate 
+                ? (entry.minutes / 60) * entry.billingRate.rate 
+                : 0}
               <tr class="data-table-row">
                 <td>
                   <input 
@@ -369,7 +348,7 @@
                 <td>{entry.date.toLocaleDateString()}</td>
                 <td class="right-aligned">{formatTime(entry.minutes)}</td>
                 <td class="right-aligned">
-                  {formatCurrency((entry.minutes / 60) * billingRate)}
+                  {formatCurrency(amount)}
                 </td>
               </tr>
             {/each}

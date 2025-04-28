@@ -88,14 +88,28 @@ export function formatTime(minutes: number, format: 'minutes' | 'hours' | 'forma
 }
 
 /**
- * Calculate effective billing rate
+ * Calculate effective billing rate by checking client overrides and parent inheritance
+ * 
+ * @param billingRate The base billing rate
+ * @param clients All clients in the system for hierarchy lookup
+ * @param clientId The ID of the client to calculate rate for
+ * @returns The effective billing rate after applying overrides
  */
-export function calculateEffectiveRate(billingRate: BillingRate, overrides?: ClientBillingRateOverride[]): number {
-  if (!overrides?.length) return billingRate.rate;
+export function calculateEffectiveRate(
+  billingRate: BillingRate, 
+  clients: Client[], 
+  clientId: string | null
+): number {
+  if (!clientId || !billingRate) return billingRate.rate;
   
-  const override = overrides.find(o => o.baseRateId === billingRate.id);
+  // Import here to avoid circular dependency
+  const { getEffectiveBillingRateOverride } = require('./clientUtils');
+  
+  // Get the effective override considering parent hierarchy
+  const override = getEffectiveBillingRateOverride(clients, clientId, billingRate.id);
   if (!override) return billingRate.rate;
   
+  // Calculate rate based on override type
   return override.overrideType === 'percentage'
     ? billingRate.rate * (override.value / 100)
     : override.value;
@@ -104,16 +118,22 @@ export function calculateEffectiveRate(billingRate: BillingRate, overrides?: Cli
 /**
  * Calculate the effective amount, cost, and profit for a time entry
  */
-export function calculateTimeEntryAmount(entry: TimeEntry & { client?: Client, billingRate?: BillingRate }): { amount: number; cost: number; profit: number } {
-  if (!entry.billable || !entry.client || !entry.billingRate) {
+export function calculateTimeEntryAmount(
+  entry: TimeEntry & { client?: Client, billingRate?: BillingRate },
+  allClients: Client[] = []
+): { amount: number; cost: number; profit: number } {
+  if (!entry.billable || !entry.billingRate) {
     return { amount: 0, cost: 0, profit: 0 };
   }
 
-  // Get client billing rate override if it exists
+  // Get effective billing rate with overrides
   let effectiveRate = entry.billingRate.rate;
   
-  // Add null check for billingRateOverrides
-  if (entry.client.billingRateOverrides && entry.client.billingRateOverrides.length > 0) {
+  if (allClients.length > 0) {
+    // Use the new hierarchy-aware rate calculation if we have all clients
+    effectiveRate = calculateEffectiveRate(entry.billingRate, allClients, entry.clientId);
+  } else if (entry.client?.billingRateOverrides?.length) {
+    // Fall back to direct client override check if allClients is not provided
     const override = entry.client.billingRateOverrides.find(o => o.baseRateId === entry.billingRate!.id);
     if (override) {
       effectiveRate = override.overrideType === 'fixed' 

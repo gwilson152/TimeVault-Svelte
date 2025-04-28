@@ -761,7 +761,9 @@
 									<th class="right-aligned">Duration</th>
 									<th class="right-aligned">Rate</th>
 									<th class="right-aligned">Amount</th>
-									<th class="right-aligned">Actions</th>
+									{#if isEditMode}
+									<th class="right-aligned w-16">Actions</th>
+									{/if}
 								</tr>
 							</thead>
 							<tbody>
@@ -780,26 +782,28 @@
 										<td class="right-aligned">
 											{formatCurrency((entry.billingRate?.rate || 0) * (entry.minutes / 60))}
 										</td>
+										{#if isEditMode}
 										<td class="right-aligned">
 											<button
-												class="table-action-button-primary"
+												class="p-2 rounded hover:bg-gray-700/50"
 												onclick={() => editTimeEntry(entry)}
-												disabled={!isEditMode}
+												disabled={isSent}
+												title="Edit time entry"
 											>
-												<Icon src={Pencil} class="mr-1 h-4 w-4" />
-												Edit
+												<Icon src={Pencil} class="h-4 w-4" />
 											</button>
 										</td>
+										{/if}
 									</tr>
 								{/each}
 							</tbody>
 							<tfoot class="data-table-footer">
 								<tr>
 									<td colspan="2">Time Entries Subtotal</td>
-									<td class="right-aligned">{formatTime(invoice.totalMinutes / 60, 'formatted')}</td
-									>
+									<td class="right-aligned">{formatTime(invoice.totalMinutes / 60, 'formatted')}</td>
 									<td></td>
 									<td class="right-aligned">{formatCurrency(invoice.totalAmount)}</td>
+									{#if isEditMode}<td></td>{/if}
 								</tr>
 							</tfoot>
 						</table>
@@ -869,7 +873,7 @@
 										<th class="right-aligned">Price</th>
 										<th class="right-aligned">Cost</th>
 										<th class="right-aligned">Quantity</th>
-										<th class="right-aligned">Actions</th>
+										<th class="right-aligned w-16">Actions</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -917,10 +921,11 @@
 											</td>
 											<td class="right-aligned">
 												<button
-													class="table-action-button-danger"
+													class="p-2 rounded hover:bg-gray-700/50"
 													onclick={() => removeAddonItem(i)}
+													title="Remove item"
 												>
-													Remove
+													<Icon src={XMark} class="h-4 w-4 text-red-400" />
 												</button>
 											</td>
 										</tr>
@@ -1053,22 +1058,20 @@
 	title="Print Invoice"
 	width="max-w-md"
 	on:close={() => (showPrintDialog = false)}
+	hasFooter={true}
 >
-	<div>
-		<div class="p-6">
-			<p class="mb-4">
-				Are you sure you want to print invoice #{invoice?.invoiceNumber || 'Draft'}?
-			</p>
-			<p class="text-sm text-gray-400">
-				This will open your browser's print dialog. Choose your printer and settings from there.
-			</p>
-		</div>
-		<div class="px-6 py-4 border-t border-white/10">
-			<div class="flex justify-end gap-3">
-				<button class="btn btn-secondary" onclick={() => (showPrintDialog = false)}>Cancel</button>
-				<button class="btn btn-primary" onclick={printInvoice}>Print</button>
-			</div>
-		</div>
+	<div class="p-6">
+		<p class="mb-4 text-gray-900">
+			Are you sure you want to print invoice #{invoice?.invoiceNumber || 'Draft'}?
+		</p>
+		<p class="text-sm text-gray-600">
+			This will open your browser's print dialog. Choose your printer and settings from there.
+		</p>
+	</div>
+	
+	<div slot="footer" class="flex justify-end gap-3">
+		<button class="btn btn-secondary" onclick={() => (showPrintDialog = false)}>Cancel</button>
+		<button class="btn btn-primary" onclick={printInvoice}>Print</button>
 	</div>
 </Modal>
 
@@ -1078,24 +1081,22 @@
 	title="Export to PDF"
 	width="max-w-md"
 	on:close={() => (showExportDialog = false)}
+	hasFooter={true}
 >
-	<div>
-		<div class="p-6">
-			<p class="mb-4">
-				Are you ready to export invoice #{invoice?.invoiceNumber || 'Draft'} to PDF?
-			</p>
-			<p class="text-sm text-gray-400">
-				This will prepare a printer-friendly version of your invoice. When the print dialog opens, select "Save as PDF" as your destination.
-			</p>
-		</div>
-		<div class="px-6 py-4 border-t border-white/10">
-			<div class="flex justify-end gap-3">
-				<button class="btn btn-secondary" onclick={() => (showExportDialog = false)}>Cancel</button>
-				<button class="btn btn-primary" onclick={exportToPDF} disabled={exportingPDF}>
-					{exportingPDF ? 'Preparing PDF...' : 'Export to PDF'}
-				</button>
-			</div>
-		</div>
+	<div class="p-6">
+		<p class="mb-4 text-gray-900">
+			Are you ready to export invoice #{invoice?.invoiceNumber || 'Draft'} to PDF?
+		</p>
+		<p class="text-sm text-gray-600">
+			This will prepare a printer-friendly version of your invoice. When the print dialog opens, select "Save as PDF" as your destination.
+		</p>
+	</div>
+	
+	<div slot="footer" class="flex justify-end gap-3">
+		<button class="btn btn-secondary" onclick={() => (showExportDialog = false)}>Cancel</button>
+		<button class="btn btn-primary" onclick={exportToPDF} disabled={exportingPDF}>
+			{exportingPDF ? 'Preparing PDF...' : 'Export to PDF'}
+		</button>
 	</div>
 </Modal>
 
@@ -1106,26 +1107,22 @@
 	width="max-w-md"
 	on:close={() => (showSendDialog = false)}
 >
-	<div>
-		<div class="p-6">
-			<p class="mb-4">
-				Are you sure you want to mark invoice #{invoice?.invoiceNumber || 'Draft'} as sent?
+	<div class="p-6">
+		<p class="mb-4 text-gray-900">
+			Are you sure you want to mark invoice #{invoice?.invoiceNumber || 'Draft'} as sent?
+		</p>
+		<p class="text-sm text-gray-600 mb-4">
+			This will lock the invoice and mark it as sent to the client. You won't be able to edit the invoice after this action.
+		</p>
+		<div class="bg-amber-100 text-amber-800 p-3 rounded">
+			<p class="text-sm">
+				Note: This action only marks the invoice as sent in the system. You'll still need to actually send the invoice to your client outside of TimeVault.
 			</p>
-			<p class="text-sm text-gray-400 mb-4">
-				This will lock the invoice and mark it as sent to the client. You won't be able to edit the invoice after this action.
-			</p>
-			<div class="bg-amber-900/20 text-amber-400 p-3 rounded">
-				<p class="text-sm">
-					Note: This action only marks the invoice as sent in the system. You'll still need to actually send the invoice to your client outside of TimeVault.
-				</p>
-			</div>
 		</div>
-		<div class="px-6 py-4 border-t border-white/10">
-			<div class="flex justify-end gap-3">
-				<button class="btn btn-secondary" onclick={() => (showSendDialog = false)}>Cancel</button>
-				<button class="btn btn-primary" onclick={markAsSent}>Mark as Sent</button>
-			</div>
-		</div>
+	</div>
+	<div slot="footer" class="flex justify-end gap-3">
+		<button class="btn btn-secondary" onclick={() => (showSendDialog = false)}>Cancel</button>
+		<button class="btn btn-primary" onclick={markAsSent}>Mark as Sent</button>
 	</div>
 </Modal>
 
@@ -1133,53 +1130,50 @@
 <Modal
 	open={showTimeEntryModal}
 	title="Time Entry Details"
-	width="max-w-lg"
 	on:close={() => (showTimeEntryModal = false)}
+	hasFooter={true}
 >
 	{#if currentTimeEntry}
-		<div>
-			<div class="p-6">
-				<dl class="space-y-4">
-					<div>
-						<dt class="text-sm text-gray-400">Description</dt>
-						<dd>{currentTimeEntry.description}</dd>
-					</div>
-					<div>
-						<dt class="text-sm text-gray-400">Date</dt>
-						<dd>{formatDate(currentTimeEntry.date)}</dd>
-					</div>
-					<div>
-						<dt class="text-sm text-gray-400">Duration</dt>
-						<dd>{formatTime(currentTimeEntry.minutes / 60, 'formatted')}</dd>
-					</div>
-					<div>
-						<dt class="text-sm text-gray-400">Rate</dt>
-						<dd>{formatCurrency(currentTimeEntry.billingRate?.rate || 0)}/hr</dd>
-					</div>
-					<div>
-						<dt class="text-sm text-gray-400">Amount</dt>
-						<dd>{formatCurrency((currentTimeEntry.billingRate?.rate || 0) * (currentTimeEntry.minutes / 60))}</dd>
-					</div>
-					{#if isSent}
-						<div class="bg-blue-900/30 text-blue-400 p-3 rounded">
-							<p class="text-sm flex items-center">
-								<Icon src={EnvelopeOpen} class="w-5 h-5 mr-2" />
-								This time entry is locked because the invoice has been sent to the client.
-							</p>
-						</div>
-					{/if}
-				</dl>
-			</div>
-			<div class="px-6 py-4 border-t border-white/10">
-				<div class="flex justify-end gap-3">
-					<button class="btn btn-secondary" onclick={() => (showTimeEntryModal = false)}>Close</button>
-					{#if !isSent}
-						<button class="btn btn-danger" onclick={removeTimeEntryFromInvoice} disabled={isSent}>
-							Remove from Invoice
-						</button>
-					{/if}
+		<div class="p-6">
+			<dl class="space-y-4">
+				<div>
+					<dt class="text-sm text-gray-600">Description</dt>
+					<dd class="text-gray-900">{currentTimeEntry.description}</dd>
 				</div>
-			</div>
+				<div>
+					<dt class="text-sm text-gray-600">Date</dt>
+					<dd class="text-gray-900">{formatDate(currentTimeEntry.date)}</dd>
+				</div>
+				<div>
+					<dt class="text-sm text-gray-600">Duration</dt>
+					<dd class="text-gray-900">{formatTime(currentTimeEntry.minutes / 60, 'formatted')}</dd>
+				</div>
+				<div>
+					<dt class="text-sm text-gray-600">Rate</dt>
+					<dd class="text-gray-900">{formatCurrency(currentTimeEntry.billingRate?.rate || 0)}/hr</dd>
+				</div>
+				<div>
+					<dt class="text-sm text-gray-600">Amount</dt>
+					<dd class="text-gray-900">{formatCurrency((currentTimeEntry.billingRate?.rate || 0) * (currentTimeEntry.minutes / 60))}</dd>
+				</div>
+				{#if isSent}
+					<div class="bg-blue-100 text-blue-800 p-3 rounded">
+						<p class="text-sm flex items-center">
+							<Icon src={EnvelopeOpen} class="w-5 h-5 mr-2" />
+							This time entry is locked because the invoice has been sent to the client.
+						</p>
+					</div>
+				{/if}
+			</dl>
 		</div>
 	{/if}
+	
+	<div slot="footer" class="flex justify-end gap-3">
+		<button class="btn btn-secondary" onclick={() => (showTimeEntryModal = false)}>Close</button>
+		{#if !isSent && currentTimeEntry}
+			<button class="btn btn-danger" onclick={removeTimeEntryFromInvoice} disabled={isSent}>
+				Remove from Invoice
+			</button>
+		{/if}
+	</div>
 </Modal>

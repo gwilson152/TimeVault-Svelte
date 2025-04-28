@@ -363,6 +363,7 @@
 <Modal
   open={showUserModal}
   title={isEditMode ? 'Edit User' : 'Create User'}
+  hasFooter={true}
   on:close={() => showUserModal = false}
 >
   <div class="p-6">

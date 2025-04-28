@@ -223,6 +223,7 @@
   open={$showForm}
   title={$editingTicket ? 'Edit Ticket' : 'New Ticket'}
   width="max-w-2xl"
+  hasFooter={false}
   on:close={handleCancel}
 >
   <div class="p-6">

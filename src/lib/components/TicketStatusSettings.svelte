@@ -188,6 +188,7 @@
   open={showForm}
   title={editingStatus ? 'Edit Status' : 'New Status'}
   width="max-w-lg"
+  hasFooter={false}
   on:close={cancelForm}
 >
   <form on:submit|preventDefault={editingStatus ? handleUpdateStatus : handleCreateStatus} class="p-6">

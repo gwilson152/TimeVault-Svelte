@@ -322,6 +322,7 @@
 <Modal
   open={showTimeEntryForm}
   title="Add Time Entry"
+  hasFooter={false}
   on:close={handleTimeEntryCancel}
 >
   <div class="p-6">

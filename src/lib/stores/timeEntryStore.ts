@@ -276,7 +276,7 @@ function createTimeEntryStore(): TimeEntryStore {
 
 export const timeEntryStore = createTimeEntryStore();
 
-// Derived store that includes client and billing rate information
+// Derived store that includes client and billing rate information with inherited overrides
 export const entriesWithClientInfo = derived(
   [baseTimeEntryStore, baseClientStore, settingsStore.billingRates],
   ([$timeEntryStore, $clientStore, $billingRates]) => {
@@ -284,10 +284,15 @@ export const entriesWithClientInfo = derived(
       const client = entry.clientId ? $clientStore.find(c => c.id === entry.clientId) : null;
       const billingRate = entry.billingRateId ? $billingRates.find(r => r.id === entry.billingRateId) : null;
 
-      // Get client billing rate override if it exists
+      // Get effective billing rate with parent client inheritance
       let effectiveRate = billingRate?.rate ?? 0;
       if (client && billingRate) {
-        const override = client.billingRateOverrides.find(o => o.baseRateId === billingRate.id);
+        // Import the client utility functions to get effective rate with inheritance
+        const { getEffectiveBillingRateOverride } = require('$lib/utils/clientUtils');
+        
+        // Get the effective override considering parent hierarchy
+        const override = getEffectiveBillingRateOverride($clientStore, entry.clientId, billingRate.id);
+        
         if (override) {
           effectiveRate = override.overrideType === 'fixed'
             ? override.value
@@ -295,9 +300,14 @@ export const entriesWithClientInfo = derived(
         }
       }
 
+      // Calculate duration in hours for display
+      const durationHours = entry.minutes ? entry.minutes / 60 : 0;
+
       return {
         ...entry,
         clientName: client?.name || 'Unknown Client',
+        client,
+        durationHours,
         billingRate: billingRate ? {
           ...billingRate,
           rate: effectiveRate

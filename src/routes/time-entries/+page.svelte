@@ -378,6 +378,7 @@
     open={showSingleEntryModal}
     title={editingEntry ? (editingEntry.id ? 'Edit Time Entry' : 'Duplicate Time Entry') : 'New Time Entry'}
     width="max-w-2xl"
+    hasFooter={false}
     on:close={() => {
       showSingleEntryModal = false;
       editingEntry = null;
@@ -400,6 +401,7 @@
     open={showBulkEntryModal}
     title="Bulk Time Entry"
     variant="fullscreen-mobile"
+    hasFooter={false}
     on:close={() => showBulkEntryModal = false}
   >
     <BulkTimeEntryWizard 

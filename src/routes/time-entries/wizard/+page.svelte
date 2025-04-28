@@ -28,7 +28,7 @@
     ArrowUturnLeft,
     MagnifyingGlass
   } from '@steeze-ui/heroicons';
-  import ClientSearch from '$lib/components/ClientSearch';
+  import ClientSearch from '$lib/components/ClientSearch.svelte';
 
   // Helper functions
   function formatDateForInput(date: Date): string {
@@ -208,9 +208,12 @@
     
   const hasValidEntries = $derived(
     entries.length > 0 && entries.every(e => 
+      // Basic validation
       e.description && 
       e.minutes > 0 && 
-      (e.clientId || globalSettings.clientId)
+      (e.clientId || globalSettings.clientId) &&
+      // Billing rate validation
+      (!e.billable || (e.billingRateId || globalSettings.billingRateId))
     )
   );
 
@@ -507,13 +510,21 @@
       </div>
 
       <ClientSearch
-        bind:selectedClientId={globalSettings.clientId}
+        selectedClientId={globalSettings.clientId}
+        on:change={(e) => {
+          globalSettings.clientId = e.detail;
+          // Update entries to use new global client if they don't have a specific client
+          entries = entries.map(entry => ({
+            ...entry,
+            clientId: entry.clientId || e.detail
+          }));
+        }}
         label="Default Client"
         placeholder="Select a client"
         className="md:col-span-2"
         hint={globalSettings.clientId 
           ? "Selected client will scope available clients in entries to itself and its sub-clients. 🏢 = Business, 📁 = Container, 👤 = Individual"
-          : undefined}
+          : "Select a client to apply to all entries without a specific client selected"}
       />
       
       <div class="form-field mb-0">
@@ -548,132 +559,159 @@
   <!-- Time Entries -->
   <div class="space-y-3">
     {#each entries as entry (entry.id)}
-      <GlassCard className="p-3">
-        <div class="flex gap-4">
-          <!-- Description - 2/3 width -->
-          <div class="flex-[2]">
+      <GlassCard className="p-4">
+        <div class="space-y-4">
+          <!-- Description -->
+          <div>
             <textarea 
               class="form-textarea w-full" 
-              rows="4"
+              rows="3"
               placeholder="Describe what you worked on. Press Tab to move to the next field."
               bind:value={entry.description}
             />
           </div>
           
-          <!-- Entry Fields - 1/3 width -->
-          <div class="flex-1">
-            <div class="space-y-3">
-              <!-- Date and Time Row -->
-              <div class="grid grid-cols-5 gap-2">
-                <div class="col-span-3">
-                  <div class="flex gap-2 items-start">
-                    <div class="flex-1">
-                      <input 
-                        type="date"
-                        class="form-input w-full"
-                        value={formatDateForInput(entry.date)}
-                        oninput={(e) => {
-                          entry.date = new Date(e.currentTarget.value);
-                          entries = [...entries];
-                        }}
-                      />
-                      <span class="form-hint mt-1">
-                        {formatDateDisplay(entry.date)}
-                        {entry.date.getTime() !== globalSettings.date.getTime() ? ' (Override)' : ''}
-                      </span>
-                    </div>
-                    <div class="flex flex-col gap-1">
-                      <button 
-                        class="btn btn-secondary btn-sm"
-                        title="Previous Day"
-                        onclick={() => changeEntryDate(entry, -1)}
-                      >
-                        −
-                      </button>
-                      <button 
-                        class="btn btn-secondary btn-sm"
-                        title="Next Day"
-                        onclick={() => changeEntryDate(entry, 1)}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-span-2">
-                  <input 
-                    type="time"
-                    class="form-input w-full" 
-                    bind:value={entry.startTime}
-                    title="Start time for this entry"
-                  />
-                  <span class="form-hint mt-1">Start Time</span>
-                </div>
-              </div>
-
-              <!-- Duration and Client Row -->
-              <div class="grid grid-cols-5 gap-2">
-                <div class="col-span-2">
-                  <input 
-                    class="form-input w-full" 
-                    placeholder="Minutes"
-                    value={entry.duration}
-                    title="Enter duration in minutes (e.g. 90) or HH:MM format"
-                    oninput={(e) => updateEntryDuration(entry, e.currentTarget.value)}
-                  />
-                  <span class="form-hint mt-1">Duration</span>
-                </div>
-                <div class="col-span-3">
-                  <ClientSearch
-                    bind:selectedClientId={entry.clientId}
-                    showSearch={false}
-                    showIcon={false}
-                    label="Client"
-                    placeholder="Use global client"
-                    restrictToClientId={globalSettings.clientId}
-                    fieldClassName="space-y-1"
-                  />
-                </div>
-              </div>
-
-              <!-- Rate and Remove Row -->
+          <!-- Top Entry Fields -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <!-- Date -->
+            <div>
               <div class="flex gap-2 items-start">
                 <div class="flex-1">
-                  <select
-                    class="form-select w-full"
-                    bind:value={entry.billingRateId}
-                  >
-                    <option value="">Global rate</option>
-                    {#each availableBillingRates as rate}
-                      <option value={rate.id}>{rate.name}</option>
-                    {/each}
-                  </select>
-                  <span class="form-hint mt-1">Rate</span>
+                  <input 
+                    type="date"
+                    class="form-input w-full"
+                    value={formatDateForInput(entry.date)}
+                    oninput={(e) => {
+                      entry.date = new Date(e.currentTarget.value);
+                      entries = [...entries];
+                    }}
+                  />
+                  <span class="form-hint mt-1">
+                    {formatDateDisplay(entry.date)}
+                    {entry.date.getTime() !== globalSettings.date.getTime() ? ' (Override)' : ''}
+                  </span>
                 </div>
-                <button 
-                  class="text-red-400 hover:text-red-300 p-1 mt-1"
-                  title="Remove Entry"
-                  onclick={() => removeEntry(entry.id)}
-                >
-                  <Icon src={MinusCircle} class="w-5 h-5" />
-                </button>
+                <div class="flex flex-col gap-1">
+                  <button 
+                    class="btn btn-secondary btn-sm"
+                    title="Previous Day"
+                    onclick={() => changeEntryDate(entry, -1)}
+                  >
+                    −
+                  </button>
+                  <button 
+                    class="btn btn-secondary btn-sm"
+                    title="Next Day"
+                    onclick={() => changeEntryDate(entry, 1)}
+                  >
+                    +
+                  </button>
+                </div>
               </div>
-
-              <!-- Optional Ticket Selection -->
-              {#if getAvailableTickets(entry).length > 0}
-                <div class="w-full">
-                  <select
-                    class="form-select w-full text-sm"
-                    bind:value={entry.ticketId}
-                  >
-                    <option value="">No ticket</option>
-                    {#each getAvailableTickets(entry) as ticket}
-                      <option value={ticket.id}>{ticket.title}</option>
-                    {/each}
-                  </select>
-                  <span class="form-hint mt-1">Related Ticket (Optional)</span>
-                </div>
+            </div>
+            
+            <!-- Start Time -->
+            <div>
+              <input 
+                type="time"
+                class="form-input w-full" 
+                bind:value={entry.startTime}
+                title="Start time for this entry"
+              />
+              <span class="form-hint mt-1">Start Time</span>
+            </div>
+            
+            <!-- Duration -->
+            <div>
+              <input 
+                class="form-input w-full" 
+                placeholder="Minutes"
+                value={entry.duration}
+                title="Enter duration in minutes (e.g. 90) or HH:MM format"
+                oninput={(e) => updateEntryDuration(entry, e.currentTarget.value)}
+              />
+              <span class="form-hint mt-1">Duration</span>
+            </div>
+            
+            <!-- Billable Option + Remove -->
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  class="form-checkbox"
+                  bind:checked={entry.billable}
+                  id={`billable-${entry.id}`}
+                />
+                <label class="text-sm text-gray-400" for={`billable-${entry.id}`}>
+                  Time is billable
+                </label>
+              </div>
+              <button 
+                class="text-red-400 hover:text-red-300 p-1"
+                title="Remove Entry"
+                onclick={() => removeEntry(entry.id)}
+              >
+                <Icon src={MinusCircle} class="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          
+          <!-- Bottom Fields Row - Client, Billing Rate, Related Ticket -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-gray-700/30">
+            <!-- Client -->
+            <ClientSearch
+              selectedClientId={entry.clientId}
+              on:change={(e) => {
+                entry.clientId = e.detail;
+                entries = [...entries]; // Force reactivity
+              }}
+              showSearch={false}
+              showIcon={true}
+              label="Client"
+              placeholder="Select a client"
+              restrictToClientId={globalSettings.clientId}
+              hint="Client-specific rates will apply if available"
+              fieldClassName="space-y-1"
+            />
+            
+            <!-- Billing Rate -->
+            <div class="form-field">
+              <label class="form-label flex items-center gap-1">
+                <Icon src={CurrencyDollar} class="w-3 h-3 text-green-500" />
+                Billing Rate
+              </label>
+              <select
+                class="form-select w-full"
+                bind:value={entry.billingRateId}
+                disabled={!entry.billable}
+              >
+                <option value="">Global rate</option>
+                {#each availableBillingRates as rate}
+                  <option value={rate.id}>{rate.name}</option>
+                {/each}
+              </select>
+              {#if !entry.billable}
+                <span class="form-hint mt-1 text-amber-400">Not billable</span>
               {/if}
+            </div>
+            
+            <!-- Related Ticket -->
+            <div class="form-field">
+              <label class="form-label flex items-center gap-1">
+                <Icon src={Ticket} class="w-3 h-3 text-purple-500" />
+                Related Ticket
+              </label>
+              <select
+                class="form-select w-full text-sm"
+                bind:value={entry.ticketId}
+                disabled={!entry.clientId && !globalSettings.clientId}
+              >
+                <option value="">No ticket</option>
+                {#each getAvailableTickets(entry) as ticket}
+                  <option value={ticket.id}>{ticket.title}</option>
+                {/each}
+              </select>
+              <span class="form-hint mt-1">Optional</span>
             </div>
           </div>
         </div>

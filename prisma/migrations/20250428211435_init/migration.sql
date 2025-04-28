@@ -1,3 +1,22 @@
+-- CreateEnum
+CREATE TYPE "UserRole" AS ENUM ('ADMIN', 'AGENT', 'CLIENT_ADMIN', 'CLIENT_USER');
+
+-- CreateTable
+CREATE TABLE "users" (
+    "id" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "passwordHash" TEXT NOT NULL,
+    "role" "UserRole" NOT NULL DEFAULT 'CLIENT_USER',
+    "clientId" TEXT,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "lastLoginAt" TIMESTAMP(3),
+
+    CONSTRAINT "users_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateTable
 CREATE TABLE "clients" (
     "id" TEXT NOT NULL,
@@ -17,16 +36,19 @@ CREATE TABLE "time_entries" (
     "description" TEXT NOT NULL,
     "startTime" TIMESTAMP(3) NOT NULL,
     "endTime" TIMESTAMP(3),
-    "minutes" DOUBLE PRECISION NOT NULL,
+    "minutes" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "date" TIMESTAMP(3) NOT NULL,
     "clientId" TEXT,
     "billable" BOOLEAN NOT NULL DEFAULT true,
     "billed" BOOLEAN NOT NULL DEFAULT false,
+    "billedRate" DOUBLE PRECISION,
+    "locked" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "invoiceId" TEXT,
     "ticketId" TEXT,
     "billingRateId" TEXT,
+    "userId" TEXT,
 
     CONSTRAINT "time_entries_pkey" PRIMARY KEY ("id")
 );
@@ -93,6 +115,19 @@ CREATE TABLE "Ticket" (
 );
 
 -- CreateTable
+CREATE TABLE "ticket_notes" (
+    "id" TEXT NOT NULL,
+    "ticketId" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "isInternal" BOOLEAN NOT NULL DEFAULT false,
+    "userId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ticket_notes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "ticket_statuses" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -149,6 +184,12 @@ CREATE TABLE "client_billing_rate_overrides" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "users_email_key" ON "users"("email");
+
+-- CreateIndex
+CREATE INDEX "users_clientId_idx" ON "users"("clientId");
+
+-- CreateIndex
 CREATE INDEX "clients_parentId_idx" ON "clients"("parentId");
 
 -- CreateIndex
@@ -162,6 +203,9 @@ CREATE INDEX "time_entries_invoiceId_idx" ON "time_entries"("invoiceId");
 
 -- CreateIndex
 CREATE INDEX "time_entries_billingRateId_idx" ON "time_entries"("billingRateId");
+
+-- CreateIndex
+CREATE INDEX "time_entries_userId_idx" ON "time_entries"("userId");
 
 -- CreateIndex
 CREATE INDEX "invoices_clientId_idx" ON "invoices"("clientId");
@@ -182,6 +226,12 @@ CREATE INDEX "Ticket_clientId_idx" ON "Ticket"("clientId");
 CREATE INDEX "Ticket_statusId_idx" ON "Ticket"("statusId");
 
 -- CreateIndex
+CREATE INDEX "ticket_notes_ticketId_idx" ON "ticket_notes"("ticketId");
+
+-- CreateIndex
+CREATE INDEX "ticket_notes_userId_idx" ON "ticket_notes"("userId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ticket_statuses_name_key" ON "ticket_statuses"("name");
 
 -- CreateIndex
@@ -200,6 +250,9 @@ CREATE INDEX "client_billing_rate_overrides_baseRateId_idx" ON "client_billing_r
 CREATE UNIQUE INDEX "client_billing_rate_overrides_clientId_baseRateId_key" ON "client_billing_rate_overrides"("clientId", "baseRateId");
 
 -- AddForeignKey
+ALTER TABLE "users" ADD CONSTRAINT "users_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "clients"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "clients" ADD CONSTRAINT "clients_parentId_fkey" FOREIGN KEY ("parentId") REFERENCES "clients"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -213,6 +266,9 @@ ALTER TABLE "time_entries" ADD CONSTRAINT "time_entries_ticketId_fkey" FOREIGN K
 
 -- AddForeignKey
 ALTER TABLE "time_entries" ADD CONSTRAINT "time_entries_billingRateId_fkey" FOREIGN KEY ("billingRateId") REFERENCES "billing_rates"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "time_entries" ADD CONSTRAINT "time_entries_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "invoices" ADD CONSTRAINT "invoices_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "clients"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -231,6 +287,12 @@ ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_clientId_fkey" FOREIGN KEY ("clientI
 
 -- AddForeignKey
 ALTER TABLE "Ticket" ADD CONSTRAINT "Ticket_statusId_fkey" FOREIGN KEY ("statusId") REFERENCES "ticket_statuses"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ticket_notes" ADD CONSTRAINT "ticket_notes_ticketId_fkey" FOREIGN KEY ("ticketId") REFERENCES "Ticket"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ticket_notes" ADD CONSTRAINT "ticket_notes_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "client_billing_rate_overrides" ADD CONSTRAINT "client_billing_rate_overrides_clientId_fkey" FOREIGN KEY ("clientId") REFERENCES "clients"("id") ON DELETE CASCADE ON UPDATE CASCADE;

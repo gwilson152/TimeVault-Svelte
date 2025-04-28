@@ -4,22 +4,50 @@
   import { Icon } from '@steeze-ui/svelte-icon';
   import { MagnifyingGlass, UserCircle } from '@steeze-ui/heroicons';
   import type { Client } from '$lib/types';
+  import { createEventDispatcher } from 'svelte';
   
-  // Props
-  export let selectedClientId: string | null = null;
-  export let label = 'Client';
-  export let placeholder = 'Select a client';
-  export let showSearch = true;
-  export let showIcon = true;
-  export let className = '';
-  export let fieldClassName = '';
-  export let hint: string | undefined = undefined;
-  export let restrictToClientId: string | null = null;
-  export let allowNullSelection = true;
+  const dispatch = createEventDispatcher<{
+    change: string | null;
+  }>();
+  
+  const props = $props<{
+    selectedClientId?: string | null;
+    label?: string;
+    placeholder?: string;
+    showSearch?: boolean;
+    showIcon?: boolean;
+    className?: string;
+    fieldClassName?: string;
+    hint?: string;
+    restrictToClientId?: string | null;
+    allowNullSelection?: boolean;
+  }>();
 
-  // Local state
+  // Local state with default values
+  let label = $state(props.label ?? 'Client');
+  let placeholder = $state(props.placeholder ?? 'Select a client');
+  let showSearch = $state(props.showSearch ?? true);
+  let showIcon = $state(props.showIcon ?? true);
+  let className = $state(props.className ?? '');
+  let fieldClassName = $state(props.fieldClassName ?? '');
+  let hint = $state(props.hint);
+  let restrictToClientId = $state(props.restrictToClientId ?? null);
+  let allowNullSelection = $state(props.allowNullSelection ?? true);
   let searchQuery = $state('');
-  
+
+  // Update state when props change
+  $effect(() => {
+    label = props.label ?? 'Client';
+    placeholder = props.placeholder ?? 'Select a client';
+    showSearch = props.showSearch ?? true;
+    showIcon = props.showIcon ?? true;
+    className = props.className ?? '';
+    fieldClassName = props.fieldClassName ?? '';
+    hint = props.hint;
+    restrictToClientId = props.restrictToClientId ?? null;
+    allowNullSelection = props.allowNullSelection ?? true;
+  });
+
   // Helper functions
   function getClientTypeIndicator(type: string): string {
     switch (type) {
@@ -43,32 +71,60 @@
   }
   
   function getDescendantClientIds(clientId: string, clients: Client[]): string[] {
-    const directChildren = clients.filter(c => c.parentId === clientId);
-    const descendantIds = directChildren.map(c => c.id);
+    const descendantIds: string[] = [];
+    const stack = [clientId];
     
-    for (const child of directChildren) {
-      descendantIds.push(...getDescendantClientIds(child.id, clients));
+    while (stack.length > 0) {
+      const currentId = stack.pop()!;
+      const children = clients.filter(c => c.parentId === currentId);
+      
+      for (const child of children) {
+        descendantIds.push(child.id);
+        stack.push(child.id);
+      }
     }
     
     return descendantIds;
   }
 
-  function getClientsInHierarchy(clients: Client[], parentId: string | null = null, level = 0): Array<{ client: Client; level: number }> {
-    const immediateChildren = clients.filter(c => c.parentId === parentId);
-    immediateChildren.sort((a, b) => a.name.localeCompare(b.name));
+  function getClientsInHierarchy(clients: Client[]) {
+    const result: { client: Client; level: number }[] = [];
     
-    let result: Array<{ client: Client; level: number }> = [];
-    for (const client of immediateChildren) {
+    function addWithDescendants(clientId: string | null, level: number) {
+      const client = clients.find(c => c.id === clientId);
+      if (!client) return;
+      
       result.push({ client, level });
-      result = result.concat(getClientsInHierarchy(clients, client.id, level + 1));
+      
+      const children = clients
+        .filter(c => c.parentId === clientId)
+        .sort((a, b) => a.name.localeCompare(b.name));
+        
+      for (const child of children) {
+        addWithDescendants(child.id, level + 1);
+      }
+    }
+    
+    const rootClients = clients
+      .filter(c => !c.parentId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+      
+    for (const client of rootClients) {
+      addWithDescendants(client.id, 0);
     }
     
     return result;
   }
 
-  // Computed values
+  // Track selected value and emit changes
+  function handleSelectionChange(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    const value = select.value ? select.value : null;
+    dispatch('change', value);
+  }
+
+  // Filter and sort clients
   const filteredClients = $derived((() => {
-    // First, find all matching clients and their parents
     const matchingIds = new Set<string>();
     
     $clientStore.forEach(client => {
@@ -76,20 +132,16 @@
         client.name.toLowerCase().includes(searchQuery.toLowerCase());
         
       if (matchesSearch) {
-        // Add the matching client
         matchingIds.add(client.id);
-        // Add all its parent clients
         getParentClientIds(client.id, $clientStore).forEach(id => matchingIds.add(id));
       }
     });
 
-    // If a parent client is selected for restriction, only show it and its descendants
     if (restrictToClientId) {
       const descendantIds = new Set([
         restrictToClientId,
         ...getDescendantClientIds(restrictToClientId, $clientStore)
       ]);
-      // Intersect with matching IDs if we have a search
       if (searchQuery) {
         const intersection = new Set(
           [...matchingIds].filter(id => descendantIds.has(id))
@@ -102,19 +154,16 @@
       }
     }
 
-    // Convert matching IDs to hierarchical client list
     return getClientsInHierarchy($clientStore)
       .filter(({ client }) => matchingIds.has(client.id))
       .sort((a, b) => {
-        // Sort by level first (parents before children)
         if (a.level !== b.level) return a.level - b.level;
-        // Then by name within the same level
         return a.client.name.localeCompare(b.client.name);
       });
   })());
 
   const defaultHint = $derived(
-    selectedClientId
+    props.selectedClientId
       ? "🏢 = Business, 📁 = Container, 👤 = Individual"
       : "Select a client. Parent clients will show their hierarchy."
   );
@@ -137,13 +186,15 @@
           type="text"
           class="form-input pl-8"
           placeholder="Type to search clients..."
-          bind:value={searchQuery}
+          value={searchQuery}
+          oninput={e => searchQuery = e.currentTarget.value}
         />
       </div>
     {/if}
     <select
       class="form-select"
-      bind:value={selectedClientId}
+      value={props.selectedClientId ?? ''}
+      onchange={handleSelectionChange}
       size={1}
     >
       {#if allowNullSelection}
