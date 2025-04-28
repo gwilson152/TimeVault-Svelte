@@ -40,65 +40,76 @@
   }
 </script>
 
-<div class="space-y-4">
+<div>
   {#if tickets.length === 0}
     <div class="text-center py-8 text-gray-500">
       No tickets found
     </div>
   {:else}
-    {#each tickets as ticket}
-      <GlassCard>
-        <div class="flex items-start justify-between">
-          <div class="space-y-2">
-            <div class="flex items-center space-x-3">
-              <span 
-                class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                style={getStatusStyles(ticket)}
-              >
-                {ticket.status?.name || 'Unknown Status'}
-              </span>
-              <h3 class="text-lg font-medium">
+    <div class="overflow-x-auto">
+      <table class="data-table w-full">
+        <thead class="data-table-header">
+          <tr>
+            <th>Status</th>
+            <th>Title</th>
+            {#if !clientId}
+              <th>Client</th>
+            {/if}
+            <th>Created</th>
+            <th>Addons</th>
+            <th class="right-aligned">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each tickets as ticket}
+            <tr class="data-table-row">
+              <td>
+                <span 
+                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                  style={getStatusStyles(ticket)}
+                >
+                  {ticket.status?.name || 'Unknown Status'}
+                </span>
+              </td>
+              <td>
                 <a 
                   href="/tickets/{ticket.id}" 
-                  class="hover:text-blue-600"
+                  class="hover:text-blue-600 font-medium"
                 >
                   {ticket.title}
                 </a>
-              </h3>
-            </div>
-            {#if !clientId}
-              <p class="text-sm text-gray-600">
-                Client: {getClientName(ticket.clientId)}
-              </p>
-            {/if}
-            <p class="text-sm text-gray-500">
-              Created: {formatDate(ticket.createdAt)}
-            </p>
-            {#if ticket.addons && ticket.addons.length > 0}
-              <div class="mt-2">
-                <div class="text-sm font-medium text-gray-500">Addons:</div>
-                <div class="flex flex-wrap gap-2 mt-1">
-                  {#each ticket.addons as addon}
-                    <span class="inline-flex items-center px-2 py-1 rounded-md text-xs bg-gray-100 text-gray-800">
-                      {addon.name} (${addon.amount})
-                    </span>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-          </div>
-          <div class="flex space-x-2">
-            {#if onEdit}
-              <button
-                class="btn btn-secondary"
-                on:click={() => onEdit(ticket)}
-              >
-                Edit
-              </button>
-            {/if}
-          </div>
-        </div>
-      </GlassCard>
-    {/each}
+              </td>
+              {#if !clientId}
+                <td>{getClientName(ticket.clientId)}</td>
+              {/if}
+              <td>{formatDate(ticket.createdAt)}</td>
+              <td>
+                {#if ticket.addons && ticket.addons.length > 0}
+                  <div class="flex flex-wrap gap-2">
+                    {#each ticket.addons as addon}
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs bg-gray-700 text-gray-300">
+                        {addon.name}
+                      </span>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="text-gray-500">-</span>
+                {/if}
+              </td>
+              <td class="right-aligned">
+                {#if onEdit}
+                  <button
+                    class="table-action-button-primary"
+                    on:click={() => onEdit(ticket)}
+                  >
+                    Edit
+                  </button>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
   {/if}
 </div>

@@ -183,6 +183,7 @@ export interface Invoice {
   entries: TimeEntry[];
   addons: InvoiceAddon[];
   client?: Client;
+  sent?: boolean; // Add sent property to track if invoice has been sent
 }
 
 export interface Ticket {

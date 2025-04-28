@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { GlassCard } from '$lib/components';
+  import { GlassCard, DataTable } from '$lib/components';
+  import { StatsCard } from '$lib/components';
   import { formatCurrency, formatDate, formatTime, minutesToFormatted } from '$lib/utils/invoiceUtils';
   import { clientStore } from '$lib/stores/clientStore';
   import * as api from '$lib/services/api';
@@ -25,6 +26,8 @@
   let sortBy = 'date';
   let sortDirection: 'asc' | 'desc' = 'desc';
   let filteredInvoices: Invoice[] = [];
+  let currentPage = 1;
+  let pageSize = 10;
   
   // Summary statistics
   let totalAmount = 0;
@@ -35,6 +38,118 @@
   let profitMargin = 0;
   
   $: isFiltered = filterClient || filterDateFrom || filterDateTo || filterInvoiceNumber || filterStatus !== 'all';
+
+  // Define table columns
+  const columns = [
+    {
+      key: 'invoiceNumber',
+      title: 'Invoice #',
+      sortable: true,
+      render: (value, row) => {
+        return `<a href="/invoices/${row.id}" class="font-medium text-blue-400 hover:text-blue-300">
+          ${value || '-'}
+        </a>`;
+      }
+    },
+    {
+      key: 'client.name',
+      title: 'Client',
+      sortable: true,
+      render: (value, row) => {
+        if (row.client) {
+          return `<a href="/clients/${row.clientId}" class="hover:text-blue-400">
+            ${value}
+          </a>`;
+        }
+        return `<span class="text-gray-400">Unknown Client</span>`;
+      }
+    },
+    {
+      key: 'date',
+      title: 'Date',
+      sortable: true,
+      formatter: (value) => formatDate(value)
+    },
+    {
+      key: 'paid',
+      title: 'Status',
+      sortable: true,
+      render: (value) => {
+        return `<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${value ? 'bg-green-500/10 text-green-400' : 'bg-orange-500/10 text-orange-400'}">
+          ${value ? 'Paid' : 'Unpaid'}
+        </span>`;
+      }
+    },
+    {
+      key: 'totalMinutes',
+      title: 'Hours',
+      align: 'right',
+      sortable: true,
+      formatter: (value) => minutesToFormatted(value)
+    },
+    {
+      key: 'totalAmount',
+      title: 'Amount',
+      align: 'right',
+      sortable: true,
+      formatter: (value) => formatCurrency(value)
+    },
+    {
+      key: 'totalCost',
+      title: 'Cost',
+      align: 'right',
+      sortable: true,
+      cellClass: 'text-gray-400',
+      formatter: (value) => formatCurrency(value)
+    },
+    {
+      key: 'totalProfit',
+      title: 'Profit',
+      align: 'right',
+      sortable: true,
+      render: (value, row) => {
+        const profitPercentage = row.totalAmount > 0 
+          ? ((row.totalProfit / row.totalAmount) * 100).toFixed(1) + '%' 
+          : '0%';
+        
+        return `<span class="${value >= 0 ? 'text-green-400' : 'text-red-400'}">
+          ${formatCurrency(value)}
+          <div class="text-xs text-gray-400">
+            ${profitPercentage}
+          </div>
+        </span>`;
+      }
+    },
+    {
+      key: 'id',
+      title: 'Actions',
+      align: 'right',
+      sortable: false,
+      render: (id) => {
+        return `<div class="flex justify-end gap-2">
+          <a href="/invoices/${id}" class="table-action-button-primary">
+            View
+          </a>
+        </div>`;
+      }
+    }
+  ];
+
+  // Footer row for the DataTable
+  let tableFooter = `
+    <tr>
+      <td colspan="4"><strong>Totals</strong></td>
+      <td class="right-aligned">${minutesToFormatted(filteredInvoices.reduce((sum, i) => sum + i.totalMinutes, 0))}</td>
+      <td class="right-aligned">${formatCurrency(totalAmount)}</td>
+      <td class="right-aligned">${formatCurrency(filteredInvoices.reduce((sum, i) => sum + i.totalCost, 0))}</td>
+      <td class="right-aligned">
+        <span class="${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}">
+          ${formatCurrency(totalProfit)}
+        </span>
+      </td>
+      <td></td>
+    </tr>
+  `;
 
   onMount(async () => {
     loadInvoices();
@@ -88,40 +203,6 @@
       return true;
     });
 
-    // Apply sorting
-    filteredInvoices.sort((a, b) => {
-      let comparison = 0;
-      
-      switch (sortBy) {
-        case 'date':
-          comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
-          break;
-        case 'invoiceNumber':
-          comparison = (a.invoiceNumber || '').localeCompare(b.invoiceNumber || '');
-          break;
-        case 'client':
-          comparison = (a.client?.name || '').localeCompare(b.client?.name || '');
-          break;
-        case 'hours':
-          comparison = a.totalMinutes - b.totalMinutes;
-          break;
-        case 'amount':
-          comparison = a.totalAmount - b.totalAmount;
-          break;
-        case 'cost':
-          comparison = a.totalCost - b.totalCost;
-          break;
-        case 'profit':
-          comparison = a.totalProfit - b.totalProfit;
-          break;
-        case 'paid':
-          comparison = a.paid === b.paid ? 0 : a.paid ? 1 : -1;
-          break;
-      }
-      
-      return sortDirection === 'asc' ? comparison : -comparison;
-    });
-
     // Calculate summary statistics
     totalAmount = filteredInvoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0);
     totalHours = filteredInvoices.reduce((sum, invoice) => sum + invoice.totalMinutes, 0) / 60;
@@ -132,16 +213,27 @@
     // Calculate profit margin percentage
     const totalCost = filteredInvoices.reduce((sum, invoice) => sum + invoice.totalCost, 0);
     profitMargin = totalAmount > 0 ? (totalProfit / totalAmount) * 100 : 0;
+    
+    // Update footer content
+    tableFooter = `
+      <tr>
+        <td colspan="4"><strong>Totals</strong></td>
+        <td class="right-aligned">${minutesToFormatted(filteredInvoices.reduce((sum, i) => sum + i.totalMinutes, 0))}</td>
+        <td class="right-aligned">${formatCurrency(totalAmount)}</td>
+        <td class="right-aligned">${formatCurrency(filteredInvoices.reduce((sum, i) => sum + i.totalCost, 0))}</td>
+        <td class="right-aligned">
+          <span class="${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}">
+            ${formatCurrency(totalProfit)}
+          </span>
+        </td>
+        <td></td>
+      </tr>
+    `;
   }
 
-  function toggleSort(column: string) {
-    if (sortBy === column) {
-      sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
-    } else {
-      sortBy = column;
-      sortDirection = 'desc';
-    }
-    applyFilters();
+  function handleSort(event) {
+    sortBy = event.detail.key;
+    sortDirection = event.detail.direction;
   }
 
   function resetFilters() {
@@ -151,6 +243,20 @@
     filterInvoiceNumber = '';
     filterStatus = 'all';
     applyFilters();
+  }
+
+  function handleRowClick(event) {
+    const { row } = event.detail;
+    window.location.href = `/invoices/${row.id}`;
+  }
+
+  function handlePageChange(event) {
+    currentPage = event.detail.page;
+  }
+
+  function handlePageSizeChange(event) {
+    pageSize = event.detail.size;
+    currentPage = 1;
   }
 
   $: {
@@ -187,76 +293,40 @@
   <!-- Summary Stats Cards -->
   {#if !isLoading && filteredInvoices.length > 0}
     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-      <GlassCard className="p-4">
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="text-sm text-gray-400">Total Invoices</div>
-            <div class="text-xl font-semibold mt-1">{filteredInvoices.length}</div>
-            {#if isFiltered}
-              <div class="text-xs text-gray-400 mt-1">
-                Filtered from {invoices.length} total
-              </div>
-            {/if}
-          </div>
-          <div class="bg-blue-500/20 text-blue-400 rounded-full p-2">
-            <Icon src={DocumentText} class="w-5 h-5" />
-          </div>
-        </div>
-      </GlassCard>
+      <StatsCard
+        title="Total Invoices"
+        value={filteredInvoices.length}
+        icon={DocumentText}
+        iconColor="blue"
+        subtitle={isFiltered ? `Filtered from ${invoices.length} total` : ''}
+      />
       
-      <GlassCard className="p-4">
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="text-sm text-gray-400">Total Amount</div>
-            <div class="text-xl font-semibold mt-1">{formatCurrency(totalAmount)}</div>
-            <div class="text-xs text-gray-400 mt-1 flex items-center gap-1">
-              <span class={totalPaid > 0 ? 'text-green-400' : ''}>
-                {formatCurrency(totalPaid)} paid
-              </span>
-              {#if totalUnpaid > 0}
-                <span class="text-red-400">
-                  ({formatCurrency(totalUnpaid)} unpaid)
-                </span>
-              {/if}
-            </div>
-          </div>
-          <div class="bg-green-500/20 text-green-400 rounded-full p-2">
-            <Icon src={Banknotes} class="w-5 h-5" />
-          </div>
-        </div>
-      </GlassCard>
+      <StatsCard
+        title="Total Amount"
+        value={formatCurrency(totalAmount)}
+        icon={Banknotes}
+        iconColor="green"
+        subtitle={`<span class="${totalPaid > 0 ? 'text-green-400' : ''}">${formatCurrency(totalPaid)} paid</span>
+                  ${totalUnpaid > 0 ? `<span class="text-red-400">($${formatCurrency(totalUnpaid)} unpaid)</span>` : ''}`}
+      />
       
-      <GlassCard className="p-4">
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="text-sm text-gray-400">Total Hours</div>
-            <div class="text-xl font-semibold mt-1">{totalHours.toFixed(1)}</div>
-            <div class="text-xs text-gray-400 mt-1">
-              Average: {(totalHours / Math.max(filteredInvoices.length, 1)).toFixed(1)} per invoice
-            </div>
-          </div>
-          <div class="bg-yellow-500/20 text-yellow-400 rounded-full p-2">
-            <Icon src={Clock} class="w-5 h-5" />
-          </div>
-        </div>
-      </GlassCard>
+      <StatsCard
+        title="Total Hours"
+        value={totalHours.toFixed(1)}
+        icon={Clock}
+        iconColor="yellow"
+        subtitle={`Average: ${(totalHours / Math.max(filteredInvoices.length, 1)).toFixed(1)} per invoice`}
+      />
       
-      <GlassCard className="p-4">
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="text-sm text-gray-400">Total Profit</div>
-            <div class={`text-xl font-semibold mt-1 ${totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {formatCurrency(totalProfit)}
-            </div>
-            <div class="text-xs text-gray-400 mt-1">
-              Margin: {profitMargin.toFixed(1)}%
-            </div>
-          </div>
-          <div class="bg-purple-500/20 text-purple-400 rounded-full p-2">
-            <Icon src={ChartPie} class="w-5 h-5" />
-          </div>
-        </div>
-      </GlassCard>
+      <StatsCard
+        title="Total Profit"
+        value={formatCurrency(totalProfit)}
+        valueClassName={totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}
+        icon={ChartPie}
+        iconColor="purple"
+        subtitle={`Margin: ${profitMargin.toFixed(1)}%`}
+        highlight={true}
+      />
     </div>
   {/if}
 
@@ -341,225 +411,34 @@
     </div>
   </GlassCard>
 
-  <!-- Invoice List -->
-  {#if isLoading}
-    <GlassCard className="p-6">
-      <div class="text-center py-12">
-        <div class="text-gray-400 animate-pulse">Loading invoices...</div>
-      </div>
-    </GlassCard>
-  {:else if filteredInvoices.length === 0}
-    <GlassCard className="p-6">
-      <div class="text-center py-12 text-gray-400">
-        {isFiltered 
-          ? 'No invoices match your filters. Try adjusting your filter criteria.' 
-          : 'No invoices found. Start by creating a new invoice.'}
-        {#if isFiltered}
-          <div class="mt-4">
-            <button class="btn btn-secondary" on:click={resetFilters}>Reset Filters</button>
-          </div>
-        {:else}
-          <div class="mt-4">
-            <a href="/invoices/generate" class="btn btn-primary">Generate New Invoice</a>
-          </div>
-        {/if}
-      </div>
-    </GlassCard>
-  {:else}
-    <GlassCard className="p-0 overflow-hidden">
-      <div class="overflow-x-auto">
-        <table class="data-table">
-          <thead class="data-table-header">
-            <tr>
-              <th class="cursor-pointer" on:click={() => toggleSort('invoiceNumber')}>
-                <div class="flex items-center">
-                  <span>Invoice #</span>
-                  {#if sortBy === 'invoiceNumber'}
-                    <span class="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                  {/if}
-                </div>
-              </th>
-              <th class="cursor-pointer" on:click={() => toggleSort('client')}>
-                <div class="flex items-center">
-                  <span>Client</span>
-                  {#if sortBy === 'client'}
-                    <span class="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                  {/if}
-                </div>
-              </th>
-              <th class="cursor-pointer" on:click={() => toggleSort('date')}>
-                <div class="flex items-center">
-                  <span>Date</span>
-                  {#if sortBy === 'date'}
-                    <span class="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                  {/if}
-                </div>
-              </th>
-              <th class="cursor-pointer" on:click={() => toggleSort('paid')}>
-                <div class="flex items-center">
-                  <span>Status</span>
-                  {#if sortBy === 'paid'}
-                    <span class="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                  {/if}
-                </div>
-              </th>
-              <th class="cursor-pointer right-aligned" on:click={() => toggleSort('hours')}>
-                <div class="flex items-center justify-end">
-                  <span>Hours</span>
-                  {#if sortBy === 'hours'}
-                    <span class="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                  {/if}
-                </div>
-              </th>
-              <th class="cursor-pointer right-aligned" on:click={() => toggleSort('amount')}>
-                <div class="flex items-center justify-end">
-                  <span>Amount</span>
-                  {#if sortBy === 'amount'}
-                    <span class="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                  {/if}
-                </div>
-              </th>
-              <th class="cursor-pointer right-aligned" on:click={() => toggleSort('cost')}>
-                <div class="flex items-center justify-end">
-                  <span>Cost</span>
-                  {#if sortBy === 'cost'}
-                    <span class="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                  {/if}
-                </div>
-              </th>
-              <th class="cursor-pointer right-aligned" on:click={() => toggleSort('profit')}>
-                <div class="flex items-center justify-end">
-                  <span>Profit</span>
-                  {#if sortBy === 'profit'}
-                    <span class="ml-1">{sortDirection === 'asc' ? '↑' : '↓'}</span>
-                  {/if}
-                </div>
-              </th>
-              <th class="text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each filteredInvoices as invoice}
-              <tr class="data-table-row">
-                <td>
-                  <a href="/invoices/{invoice.id}" class="font-medium text-blue-400 hover:text-blue-300">
-                    {invoice.invoiceNumber || '-'}
-                  </a>
-                </td>
-                <td>
-                  {#if invoice.client}
-                    <a href="/clients/{invoice.clientId}" class="hover:text-blue-400">
-                      {invoice.client?.name}
-                    </a>
-                  {:else}
-                    <span class="text-gray-400">Unknown Client</span>
-                  {/if}
-                </td>
-                <td>
-                  {formatDate(invoice.date)}
-                </td>
-                <td>
-                  <span class={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${invoice.paid ? 'bg-green-500/10 text-green-400' : 'bg-orange-500/10 text-orange-400'}`}>
-                    {invoice.paid ? 'Paid' : 'Unpaid'}
-                  </span>
-                </td>
-                <td class="right-aligned font-mono">
-                  {minutesToFormatted(invoice.totalMinutes)}
-                </td>
-                <td class="right-aligned">
-                  {formatCurrency(invoice.totalAmount)}
-                </td>
-                <td class="right-aligned text-gray-400">
-                  {formatCurrency(invoice.totalCost)}
-                </td>
-                <td class="right-aligned">
-                  <span class={invoice.totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}>
-                    {formatCurrency(invoice.totalProfit)}
-                    <div class="text-xs text-gray-400">
-                      {invoice.totalAmount > 0 
-                        ? ((invoice.totalProfit / invoice.totalAmount) * 100).toFixed(1) + '%' 
-                        : '0%'}
-                    </div>
-                  </span>
-                </td>
-                <td>
-                  <div class="flex justify-end gap-2">
-                    <a 
-                      href="/invoices/{invoice.id}"
-                      class="table-action-button-primary"
-                    >
-                      View
-                    </a>
-                  </div>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-          <tfoot class="data-table-footer">
-            <tr>
-              <td colspan="4"><strong>Totals</strong></td>
-              <td class="right-aligned font-mono">{minutesToFormatted(filteredInvoices.reduce((sum, i) => sum + i.totalMinutes, 0))}</td>
-              <td class="right-aligned">{formatCurrency(totalAmount)}</td>
-              <td class="right-aligned">{formatCurrency(filteredInvoices.reduce((sum, i) => sum + i.totalCost, 0))}</td>
-              <td class="right-aligned">
-                <span class={totalProfit >= 0 ? 'text-green-400' : 'text-red-400'}>
-                  {formatCurrency(totalProfit)}
-                </span>
-              </td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </GlassCard>
-  {/if}
+  <!-- Invoice Data Table -->
+  <DataTable
+    data={filteredInvoices}
+    {columns}
+    loading={isLoading}
+    searchable={false}
+    pageable={true}
+    bind:currentPage
+    bind:pageSize
+    footerContent={tableFooter}
+    on:sort={handleSort}
+    on:rowClick={handleRowClick}
+    on:pageChange={handlePageChange}
+    on:pageSizeChange={handlePageSizeChange}
+    emptyMessage={isFiltered 
+      ? 'No invoices match your filters. Try adjusting your filter criteria.' 
+      : 'No invoices found. Start by creating a new invoice.'}
+  >
+    <svelte:fragment slot="footer">
+      {#if filteredInvoices.length === 0 && isFiltered}
+        <div class="flex justify-center">
+          <button class="btn btn-secondary" on:click={resetFilters}>Reset Filters</button>
+        </div>
+      {:else if filteredInvoices.length === 0 && !isFiltered}
+        <div class="flex justify-center">
+          <a href="/invoices/generate" class="btn btn-primary">Generate New Invoice</a>
+        </div>
+      {/if}
+    </svelte:fragment>
+  </DataTable>
 </div>
-
-<style>
-  .right-aligned {
-    text-align: right;
-  }
-  
-  /* Ensure that we properly use the data-table utilities */
-  :global(.data-table) {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-  }
-  
-  :global(.data-table-header) {
-    background-color: rgba(30, 41, 59, 0.5);
-  }
-  
-  :global(.data-table-header th) {
-    padding: 0.75rem 1rem;
-    text-align: left;
-    font-weight: 500;
-    font-size: 0.875rem;
-    color: rgba(148, 163, 184, 1);
-    text-transform: uppercase;
-  }
-  
-  :global(.data-table-row) {
-    border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-    transition: background-color 0.2s;
-  }
-  
-  :global(.data-table-row:hover) {
-    background-color: rgba(30, 41, 59, 0.3);
-  }
-  
-  :global(.data-table-row td) {
-    padding: 0.75rem 1rem;
-    vertical-align: middle;
-  }
-  
-  :global(.data-table-footer) {
-    background-color: rgba(30, 41, 59, 0.3);
-  }
-  
-  :global(.data-table-footer td) {
-    padding: 0.75rem 1rem;
-    font-weight: 500;
-  }
-</style>

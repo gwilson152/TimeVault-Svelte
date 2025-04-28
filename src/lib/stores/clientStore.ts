@@ -1,6 +1,8 @@
-import { writable } from 'svelte/store';
+import { derived, type Readable } from 'svelte/store';
 import type { Client, NewClient, ClientBillingRateOverride, NewBillingRateOverride } from '$lib/types';
 import * as api from '$lib/services/api';
+import { baseClientStore, clientsWithTimeEntries } from './storeInitializer';
+import { getClientHierarchy as getHierarchy } from '$lib/utils/clientUtils';
 
 type NewClientData = Omit<Client, 'id' | 'children' | 'billingRateOverrides' | 'createdAt' | 'updatedAt'> & { 
   billingRateOverrides?: NewBillingRateOverride[];
@@ -11,7 +13,7 @@ type UpdateClientData = Partial<Omit<Client, 'id' | 'children' | 'billingRateOve
 };
 
 function createClientStore() {
-  const { subscribe, set, update } = writable<Client[]>([]);
+  const { subscribe, set, update } = baseClientStore;
   let initialized = false;
   let loadPromise: Promise<void> | null = null;
 
@@ -19,8 +21,9 @@ function createClientStore() {
     console.debug(`🏢 ClientStore [${action}]`, data || '');
   }
 
-  return {
+  const store = {
     subscribe,
+    clientsWithUnbilledTime: clientsWithTimeEntries,
     
     async load(force = false) {
       logDebug('load', { force, initialized, hasLoadPromise: !!loadPromise });
@@ -46,6 +49,7 @@ function createClientStore() {
         logDebug('load:error', error);
         console.error('Failed to load clients:', error);
         set([]);
+        initialized = false;
         throw error;
       } finally {
         loadPromise = null;
@@ -114,6 +118,12 @@ function createClientStore() {
       return rate;
     },
     
+    getClientHierarchy(clientId: string): Client[] {
+      let clients: Client[] = [];
+      store.subscribe(value => { clients = value; })();
+      return getHierarchy(clients, clientId);
+    },
+    
     reset() {
       logDebug('reset');
       set([]);
@@ -121,6 +131,8 @@ function createClientStore() {
       loadPromise = null;
     }
   };
+
+  return store;
 }
 
 export const clientStore = createClientStore();

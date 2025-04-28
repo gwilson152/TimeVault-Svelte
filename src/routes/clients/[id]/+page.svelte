@@ -277,28 +277,28 @@
             </div>
           {:else}
             <div class="overflow-x-auto">
-              <table class="w-full">
-                <thead>
+              <table class="data-table">
+                <thead class="data-table-header">
                   <tr>
-                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Date</th>
-                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Hours</th>
-                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Amount</th>
-                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                    <th>Date</th>
+                    <th>Hours</th>
+                    <th>Amount</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200/10">
+                <tbody>
                   {#each invoices as invoice}
-                    <tr class="hover:bg-white/5">
-                      <td class="px-4 py-2 whitespace-nowrap">
+                    <tr class="data-table-row">
+                      <td>
                         {new Date(invoice.date).toLocaleDateString()}
                       </td>
-                      <td class="px-4 py-2 whitespace-nowrap">
+                      <td>
                         {invoice.totalMinutes} min
                       </td>
-                      <td class="px-4 py-2 whitespace-nowrap">
+                      <td>
                         {formatCurrency(invoice.totalAmount)}
                       </td>
-                      <td class="px-4 py-2">
+                      <td>
                         <a 
                           href="/invoices/{invoice.id}"
                           class="text-blue-400 hover:text-blue-300"
@@ -319,20 +319,20 @@
             </p>
 
             <div class="overflow-x-auto">
-              <table class="w-full">
-                <thead>
+              <table class="data-table">
+                <thead class="data-table-header">
                   <tr>
-                    <th class="text-left px-4 py-2">Rate Name</th>
-                    <th class="text-left px-4 py-2">Base Rate</th>
-                    <th class="text-left px-4 py-2">Override</th>
-                    <th class="text-left px-4 py-2">Effective Rate</th>
-                    <th class="text-right px-4 py-2">Actions</th>
+                    <th>Rate Name</th>
+                    <th>Base Rate</th>
+                    <th>Override</th>
+                    <th>Effective Rate</th>
+                    <th class="right-aligned">Actions</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200/10">
+                <tbody>
                   {#each $billingRates as rate}
-                    <tr class="hover:bg-white/5">
-                      <td class="px-4 py-2">
+                    <tr class="data-table-row">
+                      <td>
                         {rate.name}
                         {#if rate.isDefault}
                           <span class="ml-2 text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full">
@@ -340,10 +340,10 @@
                           </span>
                         {/if}
                       </td>
-                      <td class="px-4 py-2">
+                      <td>
                         ${rate.rate}/hr
                       </td>
-                      <td class="px-4 py-2">
+                      <td>
                         {#if editingOverride?.rateId === rate.id}
                           <div class="form-field flex gap-2 items-center">
                             <select
@@ -382,14 +382,14 @@
                           {/if}
                         {/if}
                       </td>
-                      <td class="px-4 py-2">
+                      <td>
                         ${getRateWithOverride(rate)}/hr
                       </td>
-                      <td class="px-4 py-2 text-right">
+                      <td class="right-aligned">
                         {#if editingOverride?.rateId === rate.id}
                           <div class="flex justify-end space-x-2">
                             <button
-                              class="form-submit"
+                              class="btn btn-primary"
                               class:loading={isSaving}
                               on:click={updateRateOverride}
                               disabled={isSaving}
@@ -397,7 +397,7 @@
                               {isSaving ? 'Saving...' : 'Save'}
                             </button>
                             <button
-                              class="form-submit"
+                              class="btn btn-secondary"
                               on:click={() => editingOverride = null}
                               disabled={isSaving}
                             >
@@ -407,7 +407,7 @@
                         {:else}
                           <div class="flex justify-end space-x-2">
                             <button
-                              class="form-submit"
+                              class="btn btn-secondary"
                               on:click={() => {
                                 const override = client.billingRateOverrides.find(o => o.baseRateId === rate.id);
                                 editingOverride = override ? {
@@ -425,7 +425,7 @@
                             </button>
                             {#if client.billingRateOverrides.find(o => o.baseRateId === rate.id)}
                               <button
-                                class="form-submit"
+                                class="btn btn-danger"
                                 on:click={async () => {
                                   if (!confirm('Are you sure you want to remove this rate override?')) return;
                                   if (!client) return;

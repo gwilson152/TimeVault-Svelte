@@ -199,6 +199,38 @@ export async function getInvoices(filters?: InvoiceFilters): Promise<Invoice[]> 
   }));
 }
 
+export async function updateInvoice(id: string, invoice: Partial<Invoice>): Promise<Invoice> {
+  // Convert Date objects to ISO strings before sending to API
+  const data: Record<string, any> = { ...invoice };
+  
+  if (data.date instanceof Date) {
+    data.date = data.date.toISOString();
+  }
+  
+  // Handle entries date objects if present
+  if (data.entries) {
+    data.entries = data.entries.map((entry: any) => {
+      const newEntry = { ...entry };
+      if (newEntry.date instanceof Date) {
+        newEntry.date = newEntry.date.toISOString();
+      }
+      if (newEntry.startTime instanceof Date) {
+        newEntry.startTime = newEntry.startTime.toISOString();
+      }
+      if (newEntry.endTime instanceof Date) {
+        newEntry.endTime = newEntry.endTime?.toISOString() || null;
+      }
+      return newEntry;
+    });
+  }
+  
+  const rawInvoice = await put<RawInvoice>(`/invoices/${id}`, data);
+  return {
+    ...rawInvoice,
+    date: new Date(rawInvoice.date)
+  };
+}
+
 export async function generateInvoice(
   clientId: string, 
   entries: TimeEntry[], 

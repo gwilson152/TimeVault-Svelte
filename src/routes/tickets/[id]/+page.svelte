@@ -3,7 +3,7 @@
   import { ticketStore, ticketsWithClientInfo } from '$lib/stores/ticketStore';
   import { clientStore } from '$lib/stores/clientStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
-  import TimeEntryList from '$lib/components/TimeEntryList.svelte';
+  import { TimeEntryForm, TimeEntryList, TicketNotes, GlassCard, Modal } from '$lib/components';
   import type { TimeEntry } from '$lib/types';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
@@ -14,6 +14,11 @@
   let isUpdating = $state(false);
   let newStatusId = $state<string | null>(null);
   let ticketId = $derived($page.params.id);
+  let showTimeEntryForm = $state(false);
+  let ticketStatuses = $state([]);
+  
+  // Temporary user ID (replace with actual user ID from authentication in the future)
+  const temporaryUserId = "temp-user-id";
 
   // Computed values
   const clientName = $derived(ticket?.clientId ? 
@@ -23,18 +28,29 @@
     $timeEntryStore.filter(entry => entry.ticketId === ticketId)
   );
   
-  const totalHours = $derived(
-    ticketEntries.reduce((sum, entry) => sum + entry.hours, 0)
+  const totalMinutes = $derived(
+    ticketEntries.reduce((sum, entry) => sum + (entry.minutes || 0), 0)
   );
-
+  
+  const totalHours = $derived(totalMinutes / 60);
+  
   // Load data
   onMount(async () => {
-    await Promise.all([
-      ticketStore.load(),
-      clientStore.load(),
-      timeEntryStore.load(),
-      settingsStore.load()
-    ]);
+    try {
+      // Load all required data
+      await Promise.all([
+        ticketStore.load(),
+        clientStore.load(),
+        timeEntryStore.load()
+      ]);
+      
+      // Get ticket statuses
+      const statuses = await settingsStore.loadTicketStatuses();
+      ticketStatuses = statuses;
+      
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    }
   });
 
   // Get the full ticket info including related data
@@ -42,10 +58,13 @@
     return $ticketsWithClientInfo.find(t => t.id === ticketId);
   }
 
+  // Update ticket whenever necessary data changes
   $effect(() => {
-    ticket = getTicket();
-    if (ticket) {
-      newStatusId = ticket.statusId;
+    if ($ticketsWithClientInfo.length > 0 && ticketId) {
+      ticket = getTicket();
+      if (ticket) {
+        newStatusId = ticket.statusId;
+      }
     }
   });
 
@@ -69,7 +88,8 @@
       await ticketStore.update(ticket.id, {
         statusId: newStatusId
       });
-      ticket = getTicket(); // Refresh ticket data
+      // Refresh ticket data
+      await ticketStore.load();
     } catch (error) {
       console.error('Failed to update ticket status:', error);
       alert('Failed to update ticket status');
@@ -106,6 +126,23 @@
     }
   }
 
+  // Handle time entry creation
+  function handleAddTimeEntryClick() {
+    showTimeEntryForm = true;
+  }
+  
+  // Handle time entry save
+  function handleTimeEntrySave(entry: TimeEntry) {
+    showTimeEntryForm = false;
+    // Refresh time entries list
+    timeEntryStore.load();
+  }
+  
+  // Close time entry modal
+  function handleTimeEntryCancel() {
+    showTimeEntryForm = false;
+  }
+  
   // Handle time entry edit
   function handleTimeEntryEdit(entry: TimeEntry) {
     goto(`/?edit=${entry.id}`);
@@ -118,50 +155,49 @@
     <div>
       <a 
         href="/tickets"
-        class="text-text-blue-300 hover:text-accentBlue flex items-center gap-1"
+        class="text-blue-400 hover:text-blue-300 flex items-center gap-1"
       >
-        <span class="material-icons text-sm">arrow_back</span>
-        Back to Tickets
+        <span>←</span> Back to Tickets
       </a>
     </div>
     
     <!-- Header -->
-    <div class="card-glass">
-      <div class="flex items-start justify-between">
+    <GlassCard>
+      <div class="flex flex-col md:flex-row items-start justify-between gap-4">
         <div class="space-y-2">
-          <h1 class="text-2xl font-bold text-default">{ticket.title}</h1>
-          <p class="text-sm text-text-blue-300">
+          <h1 class="text-2xl font-bold">{ticket.title}</h1>
+          <p class="text-sm text-gray-400">
             Client: {clientName}
           </p>
-          <p class="text-sm text-text-blue-300">
+          <p class="text-sm text-gray-400">
             Created: {formatDate(ticket.createdAt)}
           </p>
         </div>
         
-        <div class="flex items-center space-x-4">
+        <div class="flex flex-col md:flex-row items-start md:items-center gap-4">
           <div class="flex items-center">
-            <span class="mr-2 text-sm font-medium text-default">Status:</span>
+            <span class="mr-2 text-sm font-medium">Status:</span>
             <select
               bind:value={newStatusId}
-              onchange={updateStatus}
+              on:change={updateStatus}
               disabled={isUpdating}
-              class="px-3 py-2 border border-gray-600 rounded-md bg-gray-800 text-default focus:border-accentBlue"
+              class="form-select"
             >
-              {#each $settingsStore.filter(s => s.category === 'ticket') as status}
-                <option value={status.id}>{status.value}</option>
+              {#each ticketStatuses as status}
+                <option value={status.id}>{status.name}</option>
               {/each}
             </select>
           </div>
           
           <div class="flex space-x-2">
             <button
-              onclick={handleEdit}
+              on:click={handleEdit}
               class="btn btn-primary"
             >
               Edit Ticket
             </button>
             <button
-              onclick={handleDelete}
+              on:click={handleDelete}
               class="btn btn-danger"
             >
               Delete
@@ -169,53 +205,110 @@
           </div>
         </div>
       </div>
-    </div>
+    </GlassCard>
     
     <!-- Ticket Description -->
     {#if ticket.description}
-      <div class="card-glass">
+      <GlassCard>
         <h2 class="text-xl font-semibold mb-4">Description</h2>
-        <div class="prose max-w-none text-default">
+        <div class="prose max-w-none text-gray-100">
           {ticket.description}
         </div>
-      </div>
+      </GlassCard>
     {/if}
     
     <!-- Summary Stats -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div class="card-glass">
+      <GlassCard>
         <h3 class="text-lg font-semibold mb-2">Status</h3>
-        <span 
-          class="px-2.5 py-1 inline-flex text-sm leading-5 font-medium rounded-full"
-          style="background-color: {ticket.status.color}25; color: {ticket.status.color};"
-        >
-          {ticket.status.name}
-        </span>
-      </div>
-      <div class="card-glass">
+        {#if ticket.status}
+          <span 
+            class="px-2.5 py-1 inline-flex text-sm leading-5 font-medium rounded-full"
+            style="background-color: {ticket.status.color}25; color: {ticket.status.color};"
+          >
+            {ticket.status.name}
+          </span>
+        {:else}
+          <span class="text-gray-400">Unknown Status</span>
+        {/if}
+      </GlassCard>
+      <GlassCard>
         <h3 class="text-lg font-semibold mb-2">Time Entries</h3>
         <p class="text-3xl font-bold">{ticketEntries.length}</p>
-      </div>
-      <div class="card-glass">
+      </GlassCard>
+      <GlassCard>
         <h3 class="text-lg font-semibold mb-2">Total Hours</h3>
         <p class="text-3xl font-bold">{totalHours.toFixed(2)}</p>
-      </div>
+      </GlassCard>
     </div>
     
     <!-- Time Entries -->
-    <div class="card-glass">
-      <h2 class="text-xl font-semibold mb-4">Time Entries</h2>
+    <GlassCard>
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-xl font-semibold">Time Entries</h2>
+        <button 
+          class="btn btn-primary"
+          on:click={handleAddTimeEntryClick}
+        >
+          Add Time Entry
+        </button>
+      </div>
+      
       {#if ticketEntries.length === 0}
-        <p class="text-text-blue-300">No time entries associated with this ticket yet.</p>
+        <p class="text-gray-400 text-center py-8">No time entries associated with this ticket yet.</p>
       {:else}
-        <TimeEntryList showForm={false} />
+        <div class="overflow-x-auto">
+          <table class="data-table w-full">
+            <thead class="data-table-header">
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Duration</th>
+                <th class="right-aligned">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each ticketEntries as entry}
+                <tr class="data-table-row">
+                  <td>{new Date(entry.date).toLocaleDateString()}</td>
+                  <td>{entry.description}</td>
+                  <td>{(entry.minutes / 60).toFixed(2)} hrs</td>
+                  <td class="right-aligned">
+                    <button 
+                      class="table-action-button-primary" 
+                      on:click={() => handleTimeEntryEdit(entry)}
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+            <tfoot class="data-table-footer">
+              <tr>
+                <td colspan="2" class="text-right font-medium">Total:</td>
+                <td colspan="2">{totalHours.toFixed(2)} hrs</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       {/if}
-    </div>
+    </GlassCard>
+    
+    <!-- Ticket Notes -->
+    <GlassCard>
+      <h2 class="text-xl font-semibold mb-6">Conversation & Notes</h2>
+      <TicketNotes 
+        ticketId={ticketId} 
+        userId={temporaryUserId} 
+        showInternalNotes={true} 
+      />
+    </GlassCard>
   </div>
 {:else}
   <div class="container mx-auto px-4 py-12 text-center">
-    <h1 class="text-2xl font-bold text-default mb-4">Ticket not found</h1>
-    <p class="text-text-blue-300 mb-6">The ticket you're looking for could not be found.</p>
+    <h1 class="text-2xl font-bold mb-4">Ticket not found</h1>
+    <p class="text-gray-400 mb-6">The ticket you're looking for could not be found.</p>
     <a 
       href="/tickets"
       class="btn btn-primary"
@@ -224,3 +317,20 @@
     </a>
   </div>
 {/if}
+
+<!-- Time Entry Modal -->
+<Modal
+  open={showTimeEntryForm}
+  title="Add Time Entry"
+  on:close={handleTimeEntryCancel}
+>
+  <div class="p-6">
+    <TimeEntryForm
+      editEntry={null}
+      onSave={handleTimeEntrySave}
+      onCancel={handleTimeEntryCancel}
+      prefilledTicketId={ticketId}
+      prefilledClientId={ticket?.clientId}
+    />
+  </div>
+</Modal>

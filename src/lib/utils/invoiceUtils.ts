@@ -40,8 +40,27 @@ export async function processInvoice(invoice: Invoice): Promise<void> {
 /**
  * Format a date as YYYY-MM-DD
  */
-export function formatDate(date: Date): string {
-  return date.toISOString().split('T')[0];
+export function formatDate(date: Date | string | null | undefined): string {
+  if (!date) return 'N/A';
+  
+  try {
+    // If it's already a string in the correct format, return it
+    if (typeof date === 'string') {
+      // Check if it already has the YYYY-MM-DD format
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return date;
+      }
+      
+      // Try to convert string to Date and then format
+      return new Date(date).toISOString().split('T')[0];
+    }
+    
+    // If it's a Date object, format it
+    return date.toISOString().split('T')[0];
+  } catch (error) {
+    console.error('Error formatting date:', error, date);
+    return 'Invalid Date';
+  }
 }
 
 /**

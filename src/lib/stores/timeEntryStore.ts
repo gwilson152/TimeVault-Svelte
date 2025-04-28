@@ -1,9 +1,10 @@
-import { writable, derived, type Writable } from 'svelte/store';
-import type { TimeEntry, NewTimeEntry } from '$lib/types';
+import { derived, type Writable } from 'svelte/store';
+import type { TimeEntry, NewTimeEntry, Client } from '$lib/types';
 import * as api from '$lib/services/api';
-import { clientStore } from './clientStore';
 import { settingsStore } from './settingsStore';
 import { calculateDurationInMinutes, calculateEndTime } from '$lib/utils/timeUtils';
+import { getClientHierarchy } from '$lib/utils/clientUtils';
+import { baseTimeEntryStore, baseClientStore } from './storeInitializer';
 
 interface TimeEntryStore {
   subscribe: Writable<TimeEntry[]>['subscribe'];
@@ -18,7 +19,7 @@ interface TimeEntryStore {
 }
 
 function createTimeEntryStore(): TimeEntryStore {
-  const { subscribe, set, update } = writable<TimeEntry[]>([]);
+  const { subscribe, set, update } = baseTimeEntryStore;
   let initialized = false;
 
   function logDebug(action: string, data?: any) {
@@ -45,51 +46,6 @@ function createTimeEntryStore(): TimeEntryStore {
       minutes,
       date: entry.date ? new Date(entry.date) : startTime
     };
-  }
-
-  function getChildClients(store: TimeEntryStore, parentId: string): string[] {
-    logDebug('getChildClients:start', { parentId });
-    const children: string[] = [];
-    let entries: TimeEntry[] = [];
-
-    store.subscribe(value => {
-      entries = value;
-    })();
-
-    entries.forEach(entry => {
-      if (entry.client?.parentId === parentId) {
-        children.push(entry.client.id);
-        children.push(...getChildClients(store, entry.client.id));
-      }
-    });
-
-    logDebug('getChildClients:complete', { parentId, childCount: children.length });
-    return children;
-  }
-
-  function processClient(store: TimeEntryStore, cid: string, seen: Set<string>): TimeEntry[] {
-    logDebug('processClient:start', { clientId: cid });
-    const result: TimeEntry[] = [];
-    let entries: TimeEntry[] = [];
-
-    store.subscribe(value => {
-      entries = value;
-    })();
-
-    entries
-      .filter(e => e.clientId === cid && e.billable && !e.billed)
-      .forEach(entry => {
-        if (!seen.has(entry.id)) {
-          result.push(entry);
-          seen.add(entry.id);
-        }
-      });
-
-    logDebug('processClient:complete', { 
-      clientId: cid, 
-      entriesFound: result.length 
-    });
-    return result;
   }
 
   const store: TimeEntryStore = {
@@ -281,31 +237,31 @@ function createTimeEntryStore(): TimeEntryStore {
         clientId, 
         includeSubClients 
       });
-      
-      const result: TimeEntry[] = [];
-      const seen = new Set<string>();
 
-      // Add entries for the main client
-      result.push(...processClient(store, clientId, seen));
+      let entries: TimeEntry[] = [];
+      store.subscribe(value => { entries = value; })();
 
-      if (includeSubClients) {
-        // Get all child clients recursively and process their entries
-        const childClientIds = getChildClients(store, clientId);
-        logDebug('getUnbilledByClientId:processing children', { 
-          clientId,
-          childCount: childClientIds.length
-        });
-        
-        childClientIds.forEach(cid => {
-          result.push(...processClient(store, cid, seen));
-        });
-      }
+      let clients: Client[] = [];
+      baseClientStore.subscribe(value => { clients = value; })();
+
+      const clientIds = includeSubClients
+        ? getClientHierarchy(clients, clientId).map(c => c.id)
+        : [clientId];
+
+      const filtered = entries.filter(entry =>
+        entry.clientId && 
+        clientIds.includes(entry.clientId) && 
+        entry.billable && 
+        !entry.billed
+      );
 
       logDebug('getUnbilledByClientId:complete', { 
         clientId,
-        totalEntries: result.length
+        totalEntries: filtered.length,
+        clientCount: clientIds.length
       });
-      return result;
+
+      return filtered;
     },
 
     reset() {
@@ -322,7 +278,7 @@ export const timeEntryStore = createTimeEntryStore();
 
 // Derived store that includes client and billing rate information
 export const entriesWithClientInfo = derived(
-  [timeEntryStore, clientStore, settingsStore.billingRates],
+  [baseTimeEntryStore, baseClientStore, settingsStore.billingRates],
   ([$timeEntryStore, $clientStore, $billingRates]) => {
     return $timeEntryStore.map(entry => {
       const client = entry.clientId ? $clientStore.find(c => c.id === entry.clientId) : null;

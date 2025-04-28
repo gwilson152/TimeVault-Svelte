@@ -24,7 +24,8 @@
   let clients = $state<Client[]>([]);
   let allEntries = $state<TimeEntry[]>([]);
   let clientHierarchy = $state<Client[]>([]);
-  
+  let clientSearchText = $state('');
+
   let selectedEntries = writable<Record<string, boolean>>({});
   let invoiceNumber = writable<string>('');
   let isLoading = writable<boolean>(true);
@@ -34,9 +35,47 @@
   let invoiceAddons = writable<NewInvoiceAddon[]>([]);
   let timeFormat = writable<'minutes' | 'minutes' | 'formatted'>('minutes');
 
-  // Subscribe to client store changes
+  const activeClients = clientStore.clientsWithUnbilledTime;
+
+  function buildClientOptions(): { value: string, label: string, indent: number }[] {
+    const options: { value: string, label: string, indent: number }[] = [];
+    
+    function addClient(client: Client, level: number = 0) {
+      let unbilledClients: Client[] = [];
+      activeClients.subscribe(value => { unbilledClients = value; })();
+      
+      if (!unbilledClients.some(c => c.id === client.id)) return;
+      
+      options.push({
+        value: client.id,
+        label: client.name,
+        indent: level
+      });
+      
+      const children = $clientStore
+        .filter(c => c.parentId === client.id)
+        .sort((a, b) => a.name.localeCompare(b.name));
+        
+      children.forEach(child => addClient(child, level + 1));
+    }
+    
+    const rootClients = $clientStore
+      .filter(c => !c.parentId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    rootClients.forEach(client => addClient(client));
+    
+    return options;
+  }
+
+  let filteredClientOptions = $state<{ value: string, label: string, indent: number }[]>([]);
+
+  // Watch for changes in clientSearchText and rebuild options
   $effect(() => {
-    clients = [...$clientStore];
+    filteredClientOptions = buildClientOptions().filter(option =>
+      !clientSearchText || 
+      option.label.toLowerCase().includes(clientSearchText.toLowerCase())
+    );
   });
 
   onMount(async () => {
@@ -56,7 +95,6 @@
     }
   });
 
-  // Remove the problematic $effect and move logic into a synchronous store subscription
   selectedClientId.subscribe(async (id) => {
     if (id) {
       await loadClientEntries(id);
@@ -67,26 +105,16 @@
     }
   });
 
-  function getChildClients(parentId: string): Client[] {
-    const children = $clientStore.filter(c => c.parentId === parentId);
-    let allChildren: Client[] = [...children];
-    
-    for (const child of children) {
-      allChildren = [...allChildren, ...getChildClients(child.id)];
-    }
-    
-    return allChildren;
-  }
-
   async function loadClientEntries(cid: string) {
-    const client = clients.find(c => c.id === cid);
-    if (!client) return;
-    
-    clientHierarchy = [client, ...getChildClients(client.id)];
+    clientHierarchy = clientStore.getClientHierarchy(cid);
+    if (clientHierarchy.length === 0) return;
     
     const clientIds = clientHierarchy.map(c => c.id);
     
-    const entries = $timeEntryStore.filter(entry => 
+    let entries: TimeEntry[] = [];
+    timeEntryStore.subscribe(value => { entries = value; })();
+    
+    const filteredEntries = entries.filter((entry: TimeEntry) => 
       entry.billable && 
       !entry.billed && 
       entry.clientId && 
@@ -94,11 +122,11 @@
     );
     
     const initialSelection: Record<string, boolean> = {};
-    entries.forEach(entry => {
+    filteredEntries.forEach((entry: TimeEntry) => {
       initialSelection[entry.id] = true;
     });
     
-    allEntries = entries;
+    allEntries = filteredEntries;
     selectedEntries.set(initialSelection);
   }
 
@@ -133,7 +161,7 @@
       .reduce((total, entry) => {
         const client = clients.find(c => c.id === entry.clientId);
         const billingRate = client?.billingRateOverrides?.[0]?.value || 0;
-        const hourlyDuration = entry.minutes / 60; // Convert minutes to hours
+        const hourlyDuration = entry.minutes / 60;
         return {
           minutes: total.minutes + entry.minutes,
           amount: total.amount + (hourlyDuration * billingRate)
@@ -218,19 +246,30 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div class="form-field">
           <label for="client" class="form-label">Client</label>
-          <select
-            id="client"
-            bind:value={$selectedClientId}
-            class="form-select"
-            disabled={$isGenerating}
-          >
-            <option value="">Select a client</option>
-            {#each clients as client}
-              <option value={client.id}>{client.name}</option>
-            {/each}
-          </select>
+          <div class="relative">
+            <input 
+              type="text"
+              placeholder="Search clients..."
+              class="form-input mb-2"
+              bind:value={clientSearchText}
+            />
+            <select
+              id="client"
+              bind:value={$selectedClientId}
+              class="form-select"
+              disabled={$isGenerating}
+              size={8}
+            >
+              <option value="">Select a client</option>
+              {#each filteredClientOptions as option}
+                <option value={option.value}>
+                  {'  '.repeat(option.indent)}{option.indent > 0 ? '└─ ' : ''}{option.label}
+                </option>
+              {/each}
+            </select>
+          </div>
           <span class="form-hint">
-            Time entries for this client and all sub-clients will be included
+            Only showing clients with unbilled time. Time entries for selected client and sub-clients will be included.
           </span>
         </div>
 
@@ -299,25 +338,25 @@
       </div>
       
       <div class="max-h-80 overflow-y-auto">
-        <table class="w-full">
-          <thead class="sticky top-0 bg-gray-900 bg-opacity-90 z-10">
-            <tr class="text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-              <th class="p-3">
+        <table class="data-table">
+          <thead class="data-table-header sticky top-0 z-10">
+            <tr>
+              <th>
                 <span class="sr-only">Select</span>
               </th>
-              <th class="p-3">Description</th>
-              <th class="p-3">Client</th>
-              <th class="p-3">Date</th>
-              <th class="p-3 text-right">Time</th>
-              <th class="p-3 text-right">Amount</th>
+              <th>Description</th>
+              <th>Client</th>
+              <th>Date</th>
+              <th class="right-aligned">Time</th>
+              <th class="right-aligned">Amount</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-white/5">
+          <tbody>
             {#each allEntries as entry}
               {@const client = clients.find(c => c.id === entry.clientId)}
               {@const billingRate = client?.billingRateOverrides?.[0]?.value || 0}
-              <tr class="hover:bg-white/5">
-                <td class="p-3">
+              <tr class="data-table-row">
+                <td>
                   <input 
                     type="checkbox" 
                     bind:checked={$selectedEntries[entry.id]}
@@ -325,21 +364,21 @@
                     disabled={$isGenerating}
                   />
                 </td>
-                <td class="p-3">{entry.description}</td>
-                <td class="p-3">{getClientName(entry.clientId)}</td>
-                <td class="p-3">{entry.date.toLocaleDateString()}</td>
-                <td class="p-3 text-right">{formatTime(entry.minutes)}</td>
-                <td class="p-3 text-right">
+                <td>{entry.description}</td>
+                <td>{getClientName(entry.clientId)}</td>
+                <td>{entry.date.toLocaleDateString()}</td>
+                <td class="right-aligned">{formatTime(entry.minutes)}</td>
+                <td class="right-aligned">
                   {formatCurrency((entry.minutes / 60) * billingRate)}
                 </td>
               </tr>
             {/each}
             {#if Object.values($selectedEntries).some(Boolean)}
               {@const total = getSelectedTotal()}
-              <tr class="font-medium bg-blue-900/20">
-                <td class="p-3" colspan="4">Selected Total</td>
-                <td class="p-3 text-right">{formatTime(total.minutes)}</td>
-                <td class="p-3 text-right">{formatCurrency(total.amount)}</td>
+              <tr class="data-table-footer">
+                <td colspan="4">Selected Total</td>
+                <td class="right-aligned">{formatTime(total.minutes)}</td>
+                <td class="right-aligned">{formatCurrency(total.amount)}</td>
               </tr>
             {/if}
           </tbody>
@@ -369,25 +408,25 @@
     
     {#if $invoiceAddons.length > 0}
       <div class="overflow-x-auto">
-        <table class="w-full mb-4">
-          <thead>
-            <tr class="text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-              <th class="p-3">Description</th>
-              <th class="p-3 text-right">Price</th>
-              <th class="p-3 text-right">Cost</th>
-              <th class="p-3 text-right">Qty</th>
-              <th class="p-3 text-right">Total</th>
-              <th class="p-3 text-right">Profit</th>
-              <th class="p-3"><span class="sr-only">Actions</span></th>
+        <table class="data-table">
+          <thead class="data-table-header">
+            <tr>
+              <th>Description</th>
+              <th class="right-aligned">Price</th>
+              <th class="right-aligned">Cost</th>
+              <th class="right-aligned">Qty</th>
+              <th class="right-aligned">Total</th>
+              <th class="right-aligned">Profit</th>
+              <th><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-white/5">
+          <tbody>
             {#each $invoiceAddons as addon, index}
               {@const total = addon.amount * addon.quantity}
               {@const cost = addon.cost * addon.quantity}
               {@const profit = total - cost}
-              <tr>
-                <td class="p-3">
+              <tr class="data-table-row">
+                <td>
                   <input 
                     type="text" 
                     class="form-input w-full" 
@@ -396,7 +435,7 @@
                     disabled={$isGenerating}
                   />
                 </td>
-                <td class="p-3">
+                <td class="right-aligned">
                   <input 
                     type="number"
                     min="0"
@@ -406,7 +445,7 @@
                     disabled={$isGenerating}
                   />
                 </td>
-                <td class="p-3">
+                <td class="right-aligned">
                   <input 
                     type="number" 
                     min="0"
@@ -416,7 +455,7 @@
                     disabled={$isGenerating}
                   />
                 </td>
-                <td class="p-3">
+                <td class="right-aligned">
                   <input 
                     type="number" 
                     min="1"
@@ -426,9 +465,9 @@
                     disabled={$isGenerating}
                   />
                 </td>
-                <td class="p-3 text-right">{formatCurrency(total)}</td>
-                <td class="p-3 text-right">{formatCurrency(profit)}</td>
-                <td class="p-3 text-right">
+                <td class="right-aligned">{formatCurrency(total)}</td>
+                <td class="right-aligned">{formatCurrency(profit)}</td>
+                <td class="right-aligned">
                   <button 
                     type="button" 
                     class="text-red-400 hover:text-red-300"
@@ -441,10 +480,10 @@
               </tr>
             {/each}
             {#if $invoiceAddons.length > 0}
-              <tr class="font-medium bg-blue-900/20">
-                <td class="p-3" colspan="4">Addons Total</td>
-                <td class="p-3 text-right">{formatCurrency(getAddonTotals().amount)}</td>
-                <td class="p-3 text-right">{formatCurrency(getAddonTotals().profit)}</td>
+              <tr class="data-table-footer">
+                <td colspan="4">Addons Total</td>
+                <td class="right-aligned">{formatCurrency(getAddonTotals().amount)}</td>
+                <td class="right-aligned">{formatCurrency(getAddonTotals().profit)}</td>
                 <td></td>
               </tr>
             {/if}

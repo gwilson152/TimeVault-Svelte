@@ -129,30 +129,30 @@
   <!-- Billing rates table -->
   <div class="space-y-4">
     <div class="overflow-x-auto">
-      <table class="w-full">
-        <thead>
+      <table class="data-table">
+        <thead class="data-table-header">
           <tr>
-            <th class="text-left px-4 py-2">Name</th>
-            <th class="text-left px-4 py-2">Rate</th>
-            <th class="text-left px-4 py-2">Description</th>
-            <th class="text-center px-4 py-2">Default</th>
-            <th class="text-right px-4 py-2">Actions</th>
+            <th>Name</th>
+            <th>Rate</th>
+            <th>Description</th>
+            <th class="text-center">Default</th>
+            <th class="right-aligned">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-200">
+        <tbody>
           {#each $billingRates as rate}
-            <tr class="hover:bg-white/5">
-              <td class="px-4 py-2">{rate.name}</td>
-              <td class="px-4 py-2">
+            <tr class="data-table-row">
+              <td>{rate.name}</td>
+              <td>
                 <div class="flex gap-4">
                   <span class="text-sm">
                     Rate: ${rate.rate}/hr (${(rate.rate / 60).toFixed(2)}/min)
                   </span>
                 </div>
               </td>
-              <td class="px-4 py-2">{rate.description || '—'}</td>
-              <td class="px-4 py-2 text-center">{rate.isDefault ? '✓' : ''}</td>
-              <td class="px-4 py-2 text-right">
+              <td>{rate.description || '—'}</td>
+              <td class="text-center">{rate.isDefault ? '✓' : ''}</td>
+              <td class="right-aligned">
                 <div class="flex justify-end space-x-2">
                   <button
                     class="table-action-button-primary"

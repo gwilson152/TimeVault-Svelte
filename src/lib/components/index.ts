@@ -1,12 +1,17 @@
 export { default as ActionBar } from './ActionBar.svelte';
 export { default as ClientForm } from './ClientForm.svelte';
 export { default as ClientList } from './ClientList.svelte';
+export { default as DataTable } from './DataTable.svelte';
 export { default as GlassCard } from './GlassCard.svelte';
 export { default as InvoiceGenerator } from './InvoiceGenerator.svelte';
 export { default as Modal } from './Modal.svelte';
+export { default as StatsCard } from './StatsCard.svelte';
 export { default as TicketForm } from './TicketForm.svelte';
 export { default as TicketList } from './TicketList.svelte';
+export { default as TicketNotes } from './TicketNotes.svelte';
 export { default as TimeEntryForm } from './TimeEntryForm.svelte';
 export { default as TimeEntryList } from './TimeEntryList.svelte';
 export { default as TicketStatusSettings } from './TicketStatusSettings.svelte';
 export { default as BillingRatesSettings } from './BillingRatesSettings.svelte';
+export { default as BulkTimeEntryWizard } from './BulkTimeEntryWizard.svelte';
+export { default as ClientSearch } from './ClientSearch.svelte';

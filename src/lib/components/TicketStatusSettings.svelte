@@ -136,31 +136,31 @@
   <!-- Status list -->
   <div class="space-y-4">
     <div class="overflow-x-auto">
-      <table class="w-full">
-        <thead>
+      <table class="data-table">
+        <thead class="data-table-header">
           <tr>
-            <th class="text-left px-4 py-2">Name</th>
-            <th class="text-left px-4 py-2">Color</th>
-            <th class="text-left px-4 py-2">Sort Order</th>
-            <th class="text-center px-4 py-2">Default</th>
-            <th class="text-center px-4 py-2">Closed</th>
-            <th class="text-right px-4 py-2">Actions</th>
+            <th>Name</th>
+            <th>Color</th>
+            <th>Sort Order</th>
+            <th class="text-center">Default</th>
+            <th class="text-center">Closed</th>
+            <th class="right-aligned">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-200">
+        <tbody>
           {#each $ticketSettings.statuses || [] as status}
-            <tr class="hover:bg-white/5">
-              <td class="px-4 py-2">{status.name}</td>
-              <td class="px-4 py-2">
+            <tr class="data-table-row">
+              <td>{status.name}</td>
+              <td>
                 <div
                   class="w-6 h-6 rounded"
                   style="background-color: {status.color}"
                 ></div>
               </td>
-              <td class="px-4 py-2">{status.sortOrder}</td>
-              <td class="px-4 py-2 text-center">{status.isDefault ? '✓' : ''}</td>
-              <td class="px-4 py-2 text-center">{status.isClosed ? '✓' : ''}</td>
-              <td class="px-4 py-2 text-right">
+              <td>{status.sortOrder}</td>
+              <td class="text-center">{status.isDefault ? '✓' : ''}</td>
+              <td class="text-center">{status.isClosed ? '✓' : ''}</td>
+              <td class="right-aligned">
                 <div class="flex justify-end space-x-2">
                   <button
                     class="table-action-button-primary"

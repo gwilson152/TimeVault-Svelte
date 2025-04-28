@@ -169,35 +169,27 @@
   </div>
   
   <div class="card-dense overflow-x-auto">
-    <table class="min-w-full divide-y divide-gray-200">
-      <thead>
+    <table class="data-table">
+      <thead class="data-table-header">
         <tr>
-          <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Client Name
-          </th>
-          <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden sm:table-cell">
-            Type
-          </th>
-          <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Hours
-          </th>
-          <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Actions
-          </th>
+          <th>Client Name</th>
+          <th class="hidden sm:table-cell">Type</th>
+          <th>Hours</th>
+          <th class="right-aligned">Actions</th>
         </tr>
       </thead>
       
-      <tbody class="divide-y divide-gray-200">
+      <tbody>
         {#if $filteredClients.length === 0}
-          <tr>
-            <td colspan="4" class="px-3 py-2 text-center text-gray-500">
+          <tr class="data-table-row">
+            <td colspan="4" class="text-center text-gray-500">
               No clients found. Create a new client to get started.
             </td>
           </tr>
         {:else}
           {#each $filteredClients as client}
-            <tr class="hover:bg-gray-50/50">
-              <td class="px-3 py-2 whitespace-nowrap">
+            <tr class="data-table-row">
+              <td>
                 <div class="flex items-center gap-2">
                   {#if client.level > 0}
                     <div style="width: {client.level * 1.5}rem"></div>
@@ -235,31 +227,33 @@
                   </span>
                 </div>
               </td>
-              <td class="px-3 py-2 whitespace-nowrap hidden sm:table-cell">
+              <td class="hidden sm:table-cell">
                 <span class="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium
                   {client.type === 'business' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
                   {client.type.charAt(0).toUpperCase() + client.type.slice(1)}
                 </span>
               </td>
-              <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-900">
+              <td>
                 <div class="flex flex-col sm:flex-row gap-1 sm:gap-2">
                   <span title="Total Hours">{client.totalHours.toFixed(1)}</span>
                   <span class="text-blue-600" title="Unbilled Hours">({client.unbilledHours.toFixed(1)})</span>
                 </div>
               </td>
-              <td class="px-3 py-2 whitespace-nowrap text-right text-sm font-medium">
-                <button 
-                  class="text-blue-600 hover:text-blue-900 mr-2"
-                  onclick={() => handleEdit(client)}
-                >
-                  Edit
-                </button>
-                <button 
-                  class="text-red-600 hover:text-red-900"
-                  onclick={() => handleDelete(client.id)}
-                >
-                  Delete
-                </button>
+              <td class="right-aligned">
+                <div class="flex justify-end space-x-2">
+                  <button
+                    class="btn btn-primary"
+                    onclick={() => handleEdit(client)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    class="btn btn-danger"
+                    onclick={() => handleDelete(client.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
               </td>
             </tr>
           {/each}

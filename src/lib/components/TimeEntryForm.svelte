@@ -15,6 +15,8 @@
     editEntry?: TimeEntry | null;
     onSave?: ((entry: TimeEntry) => void) | null;
     onCancel?: (() => void) | null;
+    prefilledTicketId?: string | null;
+    prefilledClientId?: string | null;
   }>();
 
   // Check if the entry is locked (associated with invoice)
@@ -28,8 +30,8 @@
     endTime: null,
     minutes: 0,
     date: now,
-    clientId: '',
-    ticketId: null,
+    clientId: props.prefilledClientId || '',
+    ticketId: props.prefilledTicketId || null,
     billable: true,
     billingRateId: null,
     billed: false,
@@ -552,7 +554,7 @@
       
       <button
         type="submit"
-        class="form-submit"
+        class="btn btn-primary"
         disabled={isLocked}
       >
         {props.editEntry ? 'Save Changes' : 'Add Time Entry'}

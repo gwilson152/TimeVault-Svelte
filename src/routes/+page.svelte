@@ -50,7 +50,7 @@
         .reduce((sum, entry) => {
           const override = client.billingRateOverrides[0];
           const rate = override ? override.value : 0;
-          return sum + (entry.duration * rate);
+          return sum + (entry.minutes * rate / 60);
         }, 0);
 
       return {
@@ -92,26 +92,26 @@
         <a href="/time-entries" class="text-blue-600 hover:text-blue-800">View All</a>
       </div>
       <div class="overflow-x-auto">
-        <table class="min-w-full">
-          <thead>
+        <table class="data-table">
+          <thead class="data-table-header">
             <tr>
-              <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-              <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-              <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Hours</th>
+              <th>Date</th>
+              <th>Description</th>
+              <th class="right-aligned">Hours</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-200">
+          <tbody>
             {#each recentEntries as entry}
-              <tr class="hover:bg-gray-50/50">
-                <td class="px-3 py-2 whitespace-nowrap text-sm">
+              <tr class="data-table-row">
+                <td>
                   {new Date(entry.date).toLocaleDateString()}
                 </td>
-                <td class="px-3 py-2 text-sm">
+                <td>
                   <div>{entry.description}</div>
                   <div class="text-xs text-gray-500">{entry.clientName}</div>
                 </td>
-                <td class="px-3 py-2 whitespace-nowrap text-sm text-right">
-                  {entry.duration.toFixed(1)}
+                <td class="right-aligned">
+                  {entry.minutes / 60} hr
                 </td>
               </tr>
             {/each}
@@ -127,17 +127,17 @@
         <a href="/clients" class="text-blue-600 hover:text-blue-800">View All</a>
       </div>
       <div class="overflow-x-auto">
-        <table class="min-w-full">
-          <thead>
+        <table class="data-table">
+          <thead class="data-table-header">
             <tr>
-              <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
-              <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Unbilled</th>
+              <th>Client</th>
+              <th class="right-aligned">Unbilled</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-200">
+          <tbody>
             {#each clientsByUnbilledAmount as client}
-              <tr class="hover:bg-gray-50/50">
-                <td class="px-3 py-2 whitespace-nowrap">
+              <tr class="data-table-row">
+                <td>
                   <a 
                     href="/clients/{client.id}" 
                     class="text-blue-600 hover:text-blue-800"
@@ -145,7 +145,7 @@
                     {client.name}
                   </a>
                 </td>
-                <td class="px-3 py-2 whitespace-nowrap text-right">
+                <td class="right-aligned">
                   {formatCurrency(client.unbilledAmount)}
                 </td>
               </tr>
