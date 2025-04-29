@@ -316,12 +316,9 @@
       <GlassCard className="p-0">
         <div class="flex gap-1 border-b border-gray-800/30">
           <button 
-            class="px-6 py-4 text-sm font-medium transition-colors"
-            class:bg-white/5={activeTab === 'tickets'}
-            class:text-blue-400={activeTab === 'tickets'}
-            class:hover:text-blue-400={activeTab !== 'tickets'}
-            class:hover:bg-white/5={activeTab !== 'tickets'}
-            class:text-gray-400={activeTab !== 'tickets'}
+            class="px-6 py-4 text-sm font-medium transition-colors {activeTab === 'tickets' ? 'bg-white/5' : ''} 
+              {activeTab === 'tickets' ? 'text-blue-400' : 'text-gray-400'} 
+              {activeTab !== 'tickets' ? 'hover:text-blue-400 hover:bg-white/5' : ''}"
             on:click={() => activeTab = 'tickets'}
           >
             <div class="flex items-center gap-2">
@@ -330,12 +327,9 @@
             </div>
           </button>
           <button 
-            class="px-6 py-4 text-sm font-medium transition-colors"
-            class:bg-white/5={activeTab === 'time-entries'}
-            class:text-blue-400={activeTab === 'time-entries'}
-            class:hover:text-blue-400={activeTab !== 'time-entries'}
-            class:hover:bg-white/5={activeTab !== 'time-entries'}
-            class:text-gray-400={activeTab !== 'time-entries'}
+            class="px-6 py-4 text-sm font-medium transition-colors {activeTab === 'time-entries' ? 'bg-white/5' : ''} 
+              {activeTab === 'time-entries' ? 'text-blue-400' : 'text-gray-400'} 
+              {activeTab !== 'time-entries' ? 'hover:text-blue-400 hover:bg-white/5' : ''}"
             on:click={() => activeTab = 'time-entries'}
           >
             <div class="flex items-center gap-2">
@@ -344,12 +338,9 @@
             </div>
           </button>
           <button 
-            class="px-6 py-4 text-sm font-medium transition-colors"
-            class:bg-white/5={activeTab === 'invoices'}
-            class:text-blue-400={activeTab === 'invoices'}
-            class:hover:text-blue-400={activeTab !== 'invoices'}
-            class:hover:bg-white/5={activeTab !== 'invoices'}
-            class:text-gray-400={activeTab !== 'invoices'}
+            class="px-6 py-4 text-sm font-medium transition-colors {activeTab === 'invoices' ? 'bg-white/5' : ''} 
+              {activeTab === 'invoices' ? 'text-blue-400' : 'text-gray-400'} 
+              {activeTab !== 'invoices' ? 'hover:text-blue-400 hover:bg-white/5' : ''}"
             on:click={() => activeTab = 'invoices'}
           >
             <div class="flex items-center gap-2">
@@ -358,12 +349,9 @@
             </div>
           </button>
           <button 
-            class="px-6 py-4 text-sm font-medium transition-colors"
-            class:bg-white/5={activeTab === 'settings'}
-            class:text-blue-400={activeTab === 'settings'}
-            class:hover:text-blue-400={activeTab !== 'settings'}
-            class:hover:bg-white/5={activeTab !== 'settings'}
-            class:text-gray-400={activeTab !== 'settings'}
+            class="px-6 py-4 text-sm font-medium transition-colors {activeTab === 'settings' ? 'bg-white/5' : ''} 
+              {activeTab === 'settings' ? 'text-blue-400' : 'text-gray-400'} 
+              {activeTab !== 'settings' ? 'hover:text-blue-400 hover:bg-white/5' : ''}"
             on:click={() => activeTab = 'settings'}
           >
             <div class="flex items-center gap-2">
