@@ -29,5 +29,13 @@ export default {
       }
     }
   },
-  plugins: []
+  plugins: [],
+  future: {
+    respectDefaultRingColorOpacity: true,
+  },
+  // Add CSS variable configuration to properly handle custom properties
+  experimental: {
+    variablePrefix: false,
+    optimizeVariables: true,
+  }
 };

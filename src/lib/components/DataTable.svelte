@@ -4,7 +4,7 @@
     title: string;
     sortable?: boolean;
     class?: string;
-    cellClass?: string;
+    cellClass?: string | ((value: any, row: any) => string);
     headerClass?: string;
     formatter?: (value: any, row: any) => string;
     render?: (value: any, row: any) => any;
@@ -543,14 +543,14 @@
                 
                 {#each columns as column}
                   <td 
-                    class="{column.cellClass || ''}"
+                    class="{typeof column.cellClass === 'function' ? column.cellClass(getValue(row, column.key), row) : column.cellClass || ''}"
                     class:right-aligned={column.align === 'right'}
                     class:text-center={column.align === 'center'}
                   >
                     {#if column.render}
                       {@html column.render(getValue(row, column.key), row)}
                     {:else if column.formatter}
-                      {column.formatter(getValue(row, column.key), row)}
+                      {@html column.formatter(getValue(row, column.key), row)}
                     {:else}
                       {getValue(row, column.key) ?? ''}
                     {/if}

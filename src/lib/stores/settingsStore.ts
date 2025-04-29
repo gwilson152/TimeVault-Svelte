@@ -16,6 +16,7 @@ interface SettingsStore extends Readable<Settings[]> {
   ticketSettings: Readable<TicketSettings>;
   billingRates: Readable<BillingRate[]>;
   load: () => Promise<void>;
+  loadTicketStatuses: () => Promise<TicketStatus[]>;
   createTicketStatus: (status: Omit<TicketStatus, 'id' | 'createdAt' | 'updatedAt'>) => Promise<TicketStatus>;
   updateTicketStatus: (status: TicketStatus) => Promise<TicketStatus>;
   deleteTicketStatus: (id: string) => Promise<void>;
@@ -50,6 +51,7 @@ function createSettingsStore(): SettingsStore {
   );
 
   let initialized = false;
+  let loadingStatuses = false;
 
   return {
     subscribe,
@@ -60,7 +62,6 @@ function createSettingsStore(): SettingsStore {
 
     async load() {
       logDebug('load:start', { initialized });
-      if (initialized) return;
       
       try {
         // Load settings, ticket statuses, and billing rates in parallel
@@ -104,6 +105,30 @@ function createSettingsStore(): SettingsStore {
         logDebug('load:error', error);
         console.error('Settings store load failed:', error);
         throw error;
+      }
+    },
+
+    // Load ticket statuses separately (useful for refreshing)
+    async loadTicketStatuses(): Promise<TicketStatus[]> {
+      if (loadingStatuses) {
+        logDebug('loadTicketStatuses:skipped (already loading)');
+        return [];
+      }
+      
+      loadingStatuses = true;
+      logDebug('loadTicketStatuses:start');
+      
+      try {
+        const statuses = await getTicketStatuses();
+        logDebug('loadTicketStatuses:success', { count: statuses.length });
+        ticketStatuses.set(statuses);
+        return statuses;
+      } catch (error) {
+        logDebug('loadTicketStatuses:error', error);
+        console.error('Failed to load ticket statuses:', error);
+        return [];
+      } finally {
+        loadingStatuses = false;
       }
     },
 

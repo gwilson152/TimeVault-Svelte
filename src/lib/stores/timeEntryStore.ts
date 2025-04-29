@@ -3,7 +3,7 @@ import type { TimeEntry, NewTimeEntry, Client } from '$lib/types';
 import * as api from '$lib/services/api';
 import { settingsStore } from './settingsStore';
 import { calculateDurationInMinutes, calculateEndTime } from '$lib/utils/timeUtils';
-import { getClientHierarchy } from '$lib/utils/clientUtils';
+import { getClientHierarchy, getEffectiveBillingRateOverride } from '$lib/utils/clientUtils';
 import { baseTimeEntryStore, baseClientStore } from './storeInitializer';
 
 interface TimeEntryStore {
@@ -287,9 +287,6 @@ export const entriesWithClientInfo = derived(
       // Get effective billing rate with parent client inheritance
       let effectiveRate = billingRate?.rate ?? 0;
       if (client && billingRate) {
-        // Import the client utility functions to get effective rate with inheritance
-        const { getEffectiveBillingRateOverride } = require('$lib/utils/clientUtils');
-        
         // Get the effective override considering parent hierarchy
         const override = getEffectiveBillingRateOverride($clientStore, entry.clientId, billingRate.id);
         

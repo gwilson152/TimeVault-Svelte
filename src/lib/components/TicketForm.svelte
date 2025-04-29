@@ -1,318 +1,248 @@
 <script lang="ts">
-  import { getContext, onMount } from 'svelte';
-  import type { Ticket, TicketAddon } from '$lib/types';
-  import { settingsStore } from '$lib/stores/settingsStore';
+  import { writable } from 'svelte/store';
+  import { onMount } from 'svelte';
   import { clientStore } from '$lib/stores/clientStore';
+  import { settingsStore } from '$lib/stores/settingsStore';
+  import { ticketStore } from '$lib/stores/ticketStore';
+  import type { Ticket, NewTicket } from '$lib/types';
+  import { Icon } from '@steeze-ui/svelte-icon';
+  import { BuildingOffice, Folder, User } from '@steeze-ui/heroicons';
 
-  export let ticket: Partial<Ticket & { priority?: string }> = {};
-  export let onSubmit: (ticket: Partial<Ticket>) => void;
-  export let editTicket: Ticket | null = null;
-  export let onSave: ((ticket: Ticket) => void) | null = null;
+  const props = $props<{
+    editTicket?: Ticket | null;
+    onSubmit?: (ticket: Ticket) => void;
+    onCancel?: () => void;
+  }>();
 
-  let addons: TicketAddon[] = ticket.addons || [];
-  let selectedAddonType = '';
-  let addonAmount: number = 0;
-  let addonDescription: string = '';
-  let isLoading = true;
-  let clientError = '';
+  // Initialize form state
+  const initialState: NewTicket = {
+    title: '',
+    description: '',
+    statusId: '',
+    clientId: ''
+  };
 
-  // Get the derived store
+  let form = writable<NewTicket>(initialState);
+  let errors = $state<{[key: string]: string}>({});
+  let isSubmitting = $state(false);
+  
+  // Subscribe to ticket statuses from settings store
   const { ticketSettings } = settingsStore;
   
-  $: statuses = $ticketSettings.statuses || [];
-  $: priorities = $ticketSettings.priorities || [];
-  $: addonTypes = $ticketSettings.addonTypes || [];
-  $: hasClients = $clientStore && $clientStore.length > 0;
-  $: hasStatuses = statuses && statuses.length > 0;
-
-  // Ensure default status and priority are set for new tickets
-  $: if (!isLoading && !editTicket && !ticket.statusId && hasStatuses) {
-    ticket.statusId = statuses[0]?.id;
-  }
-  
-  $: if (!isLoading && !editTicket && !ticket.priority && priorities.length > 0) {
-    ticket.priority = priorities[0];
-  }
-
-  $: if (editTicket) {
-    ticket = { ...editTicket };
-    addons = ticket.addons || [];
-  }
-
-  onMount(async () => {
-    try {
-      // Make sure we have necessary data
-      await Promise.all([
-        settingsStore.load(),
-        clientStore.load()
-      ]);
-      
-      // Set defaults after data is loaded
-      if (!ticket.statusId && statuses.length > 0) {
-        ticket.statusId = statuses[0]?.id;
-      }
-      
-      if (!ticket.priority && priorities.length > 0) {
-        ticket.priority = priorities[0];
-      }
-    } catch (error) {
-      console.error('Failed to load form data:', error);
-    } finally {
-      isLoading = false;
+  // Effect to update form when editTicket changes
+  $effect(() => {
+    if (props.editTicket) {
+      form.set({
+        title: props.editTicket.title,
+        description: props.editTicket.description || '',
+        statusId: props.editTicket.statusId,
+        clientId: props.editTicket.clientId
+      });
     }
   });
+  
+  // Check if the client can be a parent based on its type
+  function canBeParent(client) {
+    return client.type === 'business' || client.type === 'container';
+  }
 
-  function addAddon() {
-    if (selectedAddonType) {
-      const addonType = addonTypes.find((type) => type?.name === selectedAddonType);
-      if (addonType) {
-        addons = [...addons, {
-          id: crypto.randomUUID(),
-          ticketId: ticket.id || '',
-          name: selectedAddonType,
-          amount: addonAmount || addonType.defaultAmount,
-          description: addonDescription,
-          billed: false,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }];
-        selectedAddonType = '';
-        addonAmount = 0;
-        addonDescription = '';
+  // Handle form validation
+  function validate(): boolean {
+    const newErrors: {[key: string]: string} = {};
+    
+    if (!$form.title) {
+      newErrors.title = 'Title is required';
+    }
+    
+    if (!$form.clientId) {
+      newErrors.clientId = 'Client is required';
+    }
+    
+    if (!$form.statusId) {
+      newErrors.statusId = 'Status is required';
+    }
+    
+    errors = newErrors;
+    return Object.keys(newErrors).length === 0;
+  }
+
+  // Handle form submission
+  async function handleSubmit() {
+    if (isSubmitting) return;
+    
+    if (!validate()) {
+      return;
+    }
+    
+    isSubmitting = true;
+    
+    try {
+      let ticket: Ticket;
+      
+      if (props.editTicket) {
+        // Update existing ticket
+        ticket = await ticketStore.update(props.editTicket.id, $form);
+      } else {
+        // Create new ticket
+        ticket = await ticketStore.add($form as NewTicket);
       }
+      
+      // Reset form
+      if (!props.editTicket) {
+        form.set(initialState);
+      }
+      
+      // Call onSubmit callback if provided
+      if (props.onSubmit) {
+        props.onSubmit(ticket);
+      }
+    } catch (error) {
+      console.error('Failed to save ticket:', error);
+      errors.form = error instanceof Error ? error.message : 'Failed to save ticket';
+    } finally {
+      isSubmitting = false;
     }
   }
 
-  function removeAddon(id: string) {
-    addons = addons.filter(addon => addon.id !== id);
+  // Handle cancel button
+  function handleCancel() {
+    if (props.onCancel) {
+      props.onCancel();
+    }
   }
 
-  function validateForm() {
-    // Reset error states
-    clientError = '';
+  // Load required data
+  onMount(() => {
+    clientStore.load();
+    settingsStore.loadTicketStatuses();
     
-    // Check if client is selected
-    if (!ticket.clientId) {
-      clientError = 'Client is required';
-      return false;
+    // Set default status ID if no ticket is being edited
+    if (!props.editTicket) {
+      const unsubscribe = ticketSettings.subscribe(settings => {
+        if (settings.statuses) {
+          const defaultStatus = settings.statuses.find(s => s.isDefault);
+          if (defaultStatus && !$form.statusId) {
+            form.update(f => ({ ...f, statusId: defaultStatus.id }));
+          }
+        }
+      });
+      
+      return unsubscribe;
     }
-    
-    return true;
-  }
-
-  function handleSubmit() {
-    if (!validateForm()) {
-      return; // Stop if validation fails
-    }
-    
-    // Ensure required fields are set
-    if (!ticket.statusId && statuses.length > 0) {
-      ticket.statusId = statuses[0].id;
-    }
-    
-    if (!ticket.priority && priorities.length > 0) {
-      ticket.priority = priorities[0];
-    }
-    
-    // Create a new object with only the properties we want
-    const submissionData = {
-      id: ticket.id,
-      title: ticket.title,
-      description: ticket.description,
-      clientId: ticket.clientId,
-      statusId: ticket.statusId,
-      priority: ticket.priority,
-      addons: addons
-    };
-    
-    onSubmit(submissionData);
-  }
-
-  function handleSave() {
-    if (onSave && validateForm()) {
-      const ticketToSave = { 
-        id: ticket.id || crypto.randomUUID(),
-        title: ticket.title,
-        description: ticket.description,
-        clientId: ticket.clientId,
-        statusId: ticket.statusId,
-        priority: ticket.priority,
-        addons: addons,
-        // Add required fields with defaults if not present
-        createdAt: ticket.createdAt || new Date(),
-        updatedAt: new Date()
-      };
-      onSave(ticketToSave as Ticket);
-    }
-  }
+  });
 </script>
 
-{#if isLoading}
-  <div class="text-center py-4">
-    <div class="text-gray-400 animate-pulse">Loading...</div>
+<form onsubmit={handleSubmit} class="space-y-4">
+  <!-- Form errors -->
+  {#if errors.form}
+    <div class="form-error mb-4">{errors.form}</div>
+  {/if}
+  
+  <!-- Title field -->
+  <div class="form-field">
+    <label for="title" class="form-label">Title</label>
+    <input
+      id="title"
+      type="text"
+      bind:value={$form.title}
+      class="form-input {errors.title ? 'border-red-500' : ''}"
+      placeholder="Enter ticket title"
+    />
+    {#if errors.title}
+      <span class="form-error mt-1">{errors.title}</span>
+    {/if}
   </div>
-{:else}
-  <form on:submit|preventDefault={handleSubmit} class="form-group">
-    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <div class="form-field">
-        <label for="title" class="form-label">Title</label>
-        <input
-          type="text"
-          id="title"
-          bind:value={ticket.title}
-          class="form-input"
-          required
-        />
-      </div>
 
-      <div class="form-field">
-        <label for="status" class="form-label">Status</label>
-        <select
-          id="status"
-          bind:value={ticket.statusId}
-          class="form-select"
-          required
-        >
-          {#each statuses as status}
-            <option value={status.id}>{status.name}</option>
-          {/each}
-        </select>
-      </div>
-
-      <div class="form-field">
-        <label for="priority" class="form-label">Priority</label>
-        <select
-          id="priority"
-          bind:value={ticket.priority}
-          class="form-select"
-          required
-        >
-          {#each priorities as priority}
-            <option value={priority}>{priority}</option>
-          {/each}
-        </select>
-      </div>
-
-      <div class="form-field">
-        <label for="clientId" class="form-label">Client</label>
-        <select
-          id="clientId"
-          bind:value={ticket.clientId}
-          class="form-select"
-          class:error={clientError}
-          required
-        >
-          <option value="">Select a client</option>
-          {#each $clientStore as client}
-            <option value={client.id}>{client.name}</option>
-          {/each}
-        </select>
-        {#if clientError}
-          <span class="form-error">{clientError}</span>
-        {/if}
-      </div>
-    </div>
-
-    <div class="form-field">
-      <label for="description" class="form-label">Description</label>
-      <textarea
-        id="description"
-        bind:value={ticket.description}
-        class="form-textarea"
-        rows="4"
-      ></textarea>
-    </div>
-
-    <div class="form-section mt-6">
-      <h3 class="text-lg font-medium mb-4">Addons</h3>
-      
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-3 mb-4">
-        <div class="form-field">
-          <label for="addonType" class="form-label">Type</label>
-          <select
-            id="addonType"
-            bind:value={selectedAddonType}
-            class="form-select"
-          >
-            <option value="">Select addon type</option>
-            {#each addonTypes as type}
-              <option value={type.name}>{type.name}</option>
-            {/each}
-          </select>
+  <!-- Client field -->
+  <div class="form-field">
+    <label for="clientId" class="form-label">Client</label>
+    <select
+      id="clientId"
+      bind:value={$form.clientId}
+      class="form-select {errors.clientId ? 'border-red-500' : ''}"
+    >
+      <option value="">Select a client</option>
+      {#each $clientStore as client}
+        <option value={client.id}>
+          {client.name} 
+          {#if client.type === 'business'}
+            (Business)
+          {:else if client.type === 'container'}
+            (Container)
+          {:else}
+            (Individual)
+          {/if}
+        </option>
+      {/each}
+    </select>
+    {#if errors.clientId}
+      <span class="form-error mt-1">{errors.clientId}</span>
+    {:else}
+      <span class="form-hint mt-1">
+        <div class="flex flex-wrap gap-2 mt-1">
+          <span class="flex items-center gap-1 text-xs">
+            <Icon src={BuildingOffice} class="h-3 w-3 text-blue-500" />
+            Business
+          </span>
+          <span class="flex items-center gap-1 text-xs">
+            <Icon src={Folder} class="h-3 w-3 text-amber-500" />
+            Container
+          </span>
+          <span class="flex items-center gap-1 text-xs">
+            <Icon src={User} class="h-3 w-3 text-green-500" />
+            Individual
+          </span>
         </div>
+      </span>
+    {/if}
+  </div>
 
-        <div class="form-field">
-          <label for="addonAmount" class="form-label">Amount</label>
-          <input
-            type="number"
-            id="addonAmount"
-            bind:value={addonAmount}
-            class="form-input"
-            step="0.01"
-            min="0"
-          />
-        </div>
+  <!-- Status field -->
+  <div class="form-field">
+    <label for="statusId" class="form-label">Status</label>
+    <select
+      id="statusId"
+      bind:value={$form.statusId}
+      class="form-select {errors.statusId ? 'border-red-500' : ''}"
+    >
+      <option value="">Select a status</option>
+      {#each $ticketSettings.statuses as status}
+        <option value={status.id}>{status.name}</option>
+      {/each}
+    </select>
+    {#if errors.statusId}
+      <span class="form-error mt-1">{errors.statusId}</span>
+    {/if}
+  </div>
 
-        <div class="form-field">
-          <label for="addonDescription" class="form-label">Description</label>
-          <div class="flex gap-2">
-            <input
-              type="text"
-              id="addonDescription"
-              bind:value={addonDescription}
-              class="form-input"
-            />
-            <button
-              type="button"
-              class="btn btn-primary"
-              on:click={addAddon}
-              disabled={!selectedAddonType}
-            >
-              Add
-            </button>
-          </div>
-        </div>
-      </div>
+  <!-- Description field -->
+  <div class="form-field">
+    <label for="description" class="form-label">Description</label>
+    <textarea
+      id="description"
+      bind:value={$form.description}
+      class="form-textarea"
+      rows="4"
+      placeholder="Enter ticket description (optional)"
+    ></textarea>
+  </div>
 
-      {#if addons.length > 0}
-        <div class="overflow-x-auto mt-4">
-          <table class="data-table">
-            <thead class="data-table-header">
-              <tr>
-                <th class="text-left">Type</th>
-                <th class="text-left">Amount</th>
-                <th class="text-left">Description</th>
-                <th class="text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each addons as addon}
-                <tr class="data-table-row">
-                  <td>{addon.name}</td>
-                  <td>${addon.amount.toFixed(2)}</td>
-                  <td>{addon.description || '-'}</td>
-                  <td class="text-right">
-                    <button
-                      type="button"
-                      class="table-action-button-danger"
-                      on:click={() => removeAddon(addon.id)}
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {/if}
-    </div>
-
-    <div class="flex justify-end gap-4 mt-6">
-      <slot name="actions"></slot>
-      <button type="submit" class="form-submit">
-        {ticket.id ? 'Update' : 'Create'} Ticket
-      </button>
-    </div>
-  </form>
-{/if}
+  <!-- Form buttons -->
+  <div class="flex justify-end gap-3 pt-4">
+    <button
+      type="button" 
+      class="btn btn-secondary"
+      onclick={handleCancel}
+      disabled={isSubmitting}
+    >
+      Cancel
+    </button>
+    <button
+      type="submit"
+      class="btn btn-primary {isSubmitting ? 'loading' : ''}"
+      disabled={isSubmitting}
+    >
+      {props.editTicket ? 'Save Changes' : 'Create Ticket'}
+    </button>
+  </div>
+</form>

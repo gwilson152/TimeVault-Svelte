@@ -8,6 +8,7 @@
   import type { Client, TimeEntry } from '$lib/types';
   import { minutesToFormatted } from '$lib/utils/timeUtils';
   import { formatCurrency } from '$lib/utils/invoiceUtils';
+  import { getEffectiveBillingRateOverride } from '$lib/utils/clientUtils';
   import { goto } from '$app/navigation';
   import * as api from '$lib/services/api';
 
@@ -33,7 +34,7 @@
   let selectedClientId = writable<string>('');
   let showAddonsForm = writable<boolean>(false);
   let invoiceAddons = writable<NewInvoiceAddon[]>([]);
-  let timeFormat = writable<'minutes' | 'minutes' | 'formatted'>('minutes');
+  let timeFormat = writable<'minutes' | 'hours' | 'formatted'>('minutes');
 
   const activeClients = clientStore.clientsWithUnbilledTime;
   const billingRates = settingsStore.billingRates;
@@ -44,9 +45,10 @@
       await Promise.all([
         clientStore.load(),
         timeEntryStore.load(),
-        settingsStore.load() // Load settings to get billing rates
+        settingsStore.load()
       ]);
       
+      // If clientId was provided, initialize with that client
       if (clientId) {
         selectedClientId.set(clientId);
         await loadClientEntries(clientId);
@@ -70,56 +72,59 @@
   });
 
   async function loadClientEntries(cid: string) {
-    clientHierarchy = clientStore.getClientHierarchy(cid);
-    if (clientHierarchy.length === 0) return;
-    
-    // Get unbilled entries with client info from the store
-    const entries = timeEntryStore.getUnbilledByClientId(cid, true);
-    
-    // Import client utils function for effective rate calculation
-    const { getEffectiveBillingRateOverride } = require('$lib/utils/clientUtils');
-    
-    // Get all clients for hierarchy lookup
-    clients = [];
-    clientStore.subscribe(value => {
-      clients = value;
-    })();
-    
-    // Map entries to filtered entries with billing rates
-    const filteredEntries = entries.map(entry => {
-      const client = clientHierarchy.find(c => c.id === entry.clientId);
-      const billingRate = entry.billingRateId ? 
-        $billingRates.find(r => r.id === entry.billingRateId) : null;
+    try {
+      clientHierarchy = clientStore.getClientHierarchy(cid);
+      if (clientHierarchy.length === 0) return;
       
-      // Calculate effective rate including client overrides with inheritance
-      let effectiveRate = billingRate?.rate ?? 0;
-      if (billingRate && entry.clientId) {
-        const override = getEffectiveBillingRateOverride(clients, entry.clientId, billingRate.id);
-        if (override) {
-          effectiveRate = override.overrideType === 'fixed'
-            ? override.value
-            : billingRate.rate * (override.value / 100);
+      // Get unbilled entries with client info from the store
+      const entries = timeEntryStore.getUnbilledByClientId(cid, true);
+      
+      // Get all clients for hierarchy lookup
+      clients = [];
+      clientStore.subscribe(value => {
+        clients = value;
+      })();
+      
+      // Map entries to filtered entries with billing rates
+      const filteredEntries = entries.map(entry => {
+        const client = clientHierarchy.find(c => c.id === entry.clientId);
+        const billingRate = entry.billingRateId ? 
+          $billingRates.find(r => r.id === entry.billingRateId) : null;
+        
+        // Calculate effective rate including client overrides with inheritance
+        let effectiveRate = billingRate?.rate ?? 0;
+        if (billingRate && entry.clientId) {
+          const override = getEffectiveBillingRateOverride(clients, entry.clientId, billingRate.id);
+          if (override) {
+            effectiveRate = override.overrideType === 'fixed'
+              ? override.value
+              : billingRate.rate * (override.value / 100);
+          }
         }
-      }
 
-      return {
-        ...entry,
-        client,
-        billingRate: billingRate ? {
-          ...billingRate,
-          rate: effectiveRate
-        } : undefined
-      };
-    });
+        return {
+          ...entry,
+          client,
+          billingRate: billingRate ? {
+            ...billingRate,
+            rate: effectiveRate
+          } : undefined
+        };
+      });
 
-    allEntries = filteredEntries;
+      allEntries = filteredEntries;
 
-    // Initialize all entries as selected
-    const initialSelection: Record<string, boolean> = {};
-    filteredEntries.forEach(entry => {
-      initialSelection[entry.id] = true;
-    });
-    selectedEntries.set(initialSelection);
+      // Initialize all entries as selected
+      const initialSelection: Record<string, boolean> = {};
+      filteredEntries.forEach(entry => {
+        initialSelection[entry.id] = true;
+      });
+      selectedEntries.set(initialSelection);
+    } catch (error) {
+      console.error('Error loading client entries:', error);
+      allEntries = [];
+      selectedEntries.set({});
+    }
   }
 
   function toggleAllEntries(event: Event) {

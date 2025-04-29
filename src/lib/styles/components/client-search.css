@@ -1,0 +1,43 @@
+@layer components {
+  .client-search-container {
+    position: relative;
+  }
+  
+  .client-search-dropdown {
+    position: absolute;
+    z-index: 50;
+    width: 100%;
+    margin-top: 0.25rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    background-color: rgba(31, 41, 55, 0.95);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    max-height: 15rem;
+    overflow-y: auto;
+  }
+  
+  .client-search-option {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .client-search-option:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .client-search-option:focus {
+    background-color: rgba(255, 255, 255, 0.05);
+    outline: none;
+  }
+  
+  .client-search-option.selected {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+}

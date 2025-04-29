@@ -10,15 +10,19 @@
    *  - size: Size preset (sm, md, lg, xl, full)
    *  - variant: Visual variant (default, drawer, fullscreen)
    *  - hasFooter: Whether the modal has a footer (used for SSR slot detection)
+   *  - content: Content to render in the modal body
+   *  - footer: Content to render in the modal footer
    */
   
   // Component props
-  let props = $props<{
+  const props = $props<{
     open?: boolean;
     title?: string;
     size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
     variant?: 'default' | 'drawer' | 'fullscreen';
     hasFooter?: boolean;
+    content?: any;
+    footer?: any;
   }>();
 
   // Local reactive state
@@ -72,6 +76,14 @@
     }
   }
   
+  // Add keyboard handler for backdrop for accessibility
+  function handleBackdropKeyDown(e: KeyboardEvent) {
+    if ((e.key === 'Enter' || e.key === ' ') && isOpen) {
+      closeModal();
+      e.preventDefault();
+    }
+  }
+  
   // Helper classes for variants
   const variantClasses = $derived(() => {
     switch (modalVariant) {
@@ -85,7 +97,7 @@
   });
 </script>
 
-<svelte:window on:keydown={handleEscapeKey} />
+<svelte:window onkeydown={handleEscapeKey} />
 
 {#if isOpen}
   <div 
@@ -94,15 +106,19 @@
     tabindex="-1"
     aria-labelledby="modal-title"
     aria-modal="true"
-    on:click={handleBackdropClick}
     transition:fade={{ duration: 200 }}
   >
     <div class="min-h-screen flex items-center justify-center {modalVariant === 'drawer' ? 'justify-end' : 'px-4'}">
       <!-- Backdrop -->
-      <div 
-        class="fixed inset-0 bg-opacity-50 backdrop-blur-sm"
+      <button 
+        type="button"
+        class="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm cursor-default"
+        onclick={handleBackdropClick}
+        onkeydown={handleBackdropKeyDown}
+        aria-label="Close modal"
+        tabindex="0"
         transition:fade={{ duration: 400 }}
-      ></div>
+      ></button>
       
       <!-- Modal container -->
       <div
@@ -121,7 +137,7 @@
               <button
                 type="button"
                 class="rounded-full p-2 hover:bg-gray-100 transition-colors"
-                on:click={closeModal}
+                onclick={closeModal}
                 aria-label="Close modal"
               >
                 <svg class="w-5 h-5 text-gray-700" viewBox="0 0 24 24" fill="none">
@@ -133,13 +149,13 @@
 
           <!-- Content -->
           <div class="flex-1 overflow-auto">
-            <slot></slot>
+            {@render props.content?.()}
           </div>
 
           <!-- Optional footer -->
           {#if showFooter}
             <div class="px-6 py-4 border-t border-gray-200">
-              <slot name="footer"></slot>
+              {@render props.footer?.()}
             </div>
           {/if}
         </div>

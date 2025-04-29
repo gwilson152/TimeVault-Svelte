@@ -1,14 +1,26 @@
-import { json } from '@sveltejs/kit';
+import { json, error } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import { prisma } from '$lib/server/db';
 
-// GET /api/tickets/[id]/notes - Retrieves all notes for a ticket
-export async function GET({ params }) {
-  const { id } = params;
-  
+export const GET: RequestHandler = async ({ params }) => {
   try {
+    const { id } = params;
+    
+    // Check if ticket exists
+    const ticket = await prisma.ticket.findUnique({
+      where: { id }
+    });
+    
+    if (!ticket) {
+      throw error(404, 'Ticket not found');
+    }
+    
+    // Get notes for this ticket
     const notes = await prisma.ticketNote.findMany({
-      where: { ticketId: id },
-      include: { 
+      where: { 
+        ticketId: id 
+      },
+      include: {
         user: {
           select: {
             id: true,
@@ -18,50 +30,58 @@ export async function GET({ params }) {
           }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: {
+        createdAt: 'desc'
+      }
     });
     
     return json(notes);
-  } catch (error) {
-    console.error('Failed to fetch ticket notes:', error);
-    return json({ error: 'Failed to fetch ticket notes' }, { status: 500 });
+  } catch (err) {
+    console.error('Error fetching ticket notes:', err);
+    if (err && typeof err === 'object' && 'status' in err && err.status === 404) {
+      throw err;
+    }
+    throw error(500, 'Failed to fetch ticket notes');
   }
-}
+};
 
-// POST /api/tickets/[id]/notes - Creates a new note for a ticket
-export async function POST({ params, request }) {
-  const { id } = params;
-  
+export const POST: RequestHandler = async ({ params, request }) => {
   try {
-    // Validate ticket exists
+    const { id } = params;
+    const data = await request.json();
+    
+    // Validate required fields
+    if (!data.content || !data.userId) {
+      return json({ 
+        error: 'Content and userId are required' 
+      }, { status: 400 });
+    }
+    
+    // Check if ticket exists
     const ticket = await prisma.ticket.findUnique({
       where: { id }
     });
     
     if (!ticket) {
-      return json({ error: 'Ticket not found' }, { status: 404 });
+      throw error(404, 'Ticket not found');
     }
     
-    const { content, isInternal, userId } = await request.json();
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: data.userId }
+    });
     
-    // Validate user exists if userId is provided
-    if (userId) {
-      const user = await prisma.user.findUnique({
-        where: { id: userId }
-      });
-      
-      if (!user) {
-        return json({ error: 'User not found' }, { status: 404 });
-      }
+    if (!user) {
+      throw error(404, 'User not found');
     }
     
-    // Create the note
+    // Create note
     const note = await prisma.ticketNote.create({
       data: {
-        content,
-        isInternal: isInternal || false,
-        userId,
-        ticketId: id
+        content: data.content,
+        isInternal: data.isInternal || false,
+        ticketId: id,
+        userId: data.userId
       },
       include: {
         user: {
@@ -76,8 +96,11 @@ export async function POST({ params, request }) {
     });
     
     return json(note);
-  } catch (error) {
-    console.error('Failed to create ticket note:', error);
-    return json({ error: 'Failed to create ticket note' }, { status: 500 });
+  } catch (err) {
+    console.error('Failed to create ticket note:', err);
+    if (err && typeof err === 'object' && 'status' in err && err.status === 404) {
+      throw err;
+    }
+    throw error(500, 'Failed to create ticket note');
   }
-}
+};

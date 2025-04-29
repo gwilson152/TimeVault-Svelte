@@ -1,7 +1,9 @@
 import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-export default defineConfig({
+/** @type {import('@sveltejs/kit').Config} */
+const config = {
+  preprocess: vitePreprocess(),
   plugins: [
     sveltekit(),
   ],
@@ -17,5 +19,12 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['svelte-local-storage-store']
-  }
-});
+  },
+  vitePlugin: {
+    experimental: {
+      useVitePreprocess: true,
+    },
+  },
+};
+
+export default config;

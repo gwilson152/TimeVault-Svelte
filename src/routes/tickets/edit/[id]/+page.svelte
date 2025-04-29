@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { ticketStore } from '$lib/stores/ticketStore';
-  import TicketForm from '$lib/components/TicketForm.svelte';
+  import { TicketForm, GlassCard } from '$lib/components';
   import type { Ticket } from '$lib/types';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
@@ -31,23 +31,23 @@
   <div class="mb-6">
     <a 
       href="/tickets/{$page.params.id}"
-      class="text-text-blue-300 hover:text-accentBlue"
+      class="text-blue-300 hover:text-accentBlue"
     >
       ← Back to Ticket
     </a>
   </div>
 
   {#if ticket}
-    <div class="card-glass">
+    <div class="card-glass p-6">
       <h1 class="text-2xl font-bold text-default mb-6">Edit Ticket</h1>
       <TicketForm 
         editTicket={ticket}
-        onSave={handleSave}
+        onSubmit={handleSave}
         onCancel={handleCancel}
       />
     </div>
   {:else}
-    <div class="text-center py-12 card-glass">
+    <div class="text-center py-12 card-glass p-6">
       <h1 class="text-2xl font-bold text-default">Ticket not found</h1>
       <a href="/tickets" class="mt-4 text-accentBlue hover:text-accentPink">Back to Tickets</a>
     </div>

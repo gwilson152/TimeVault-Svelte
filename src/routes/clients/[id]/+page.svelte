@@ -5,7 +5,6 @@
   import { ticketStore } from '$lib/stores/ticketStore';
   import { settingsStore } from '$lib/stores/settingsStore';
   import TimeEntryList from '$lib/components/TimeEntryList.svelte';
-  import TicketList from '$lib/components/TicketList.svelte';
   import { formatCurrency, formatTime } from '$lib/utils/invoiceUtils';
   import { Icon } from '@steeze-ui/svelte-icon';
   import { 
@@ -18,14 +17,24 @@
   import * as api from '$lib/services/api';
   import { onMount } from 'svelte';
   import { GlassCard, StatsCard } from '$lib/components';
+  import { getClientHierarchy, getEffectiveBillingRateOverride } from '$lib/utils/clientUtils';
 
   $: client = $clientStore.find(c => c.id === $page.params.id);
   $: parentClient = client?.parentId ? $clientStore.find(c => c.id === client.parentId) : null;
-  $: children = $clientStore.filter(c => c.parentId === client?.id);
-  
-  $: clientEntries = $timeEntryStore.filter(entry => entry.clientId === client?.id);
-  $: unbilledEntries = clientEntries.filter(entry => !entry.billed);
-  $: clientTickets = $ticketStore.filter(ticket => ticket.clientId === client?.id);
+  $: children = getClientHierarchy($clientStore, client?.id || '').filter(c => c.id !== client?.id);
+
+  // Get all entries for this client and its children
+  $: clientHierarchy = client ? getClientHierarchy($clientStore, client.id) : [];
+  $: clientHierarchyIds = clientHierarchy.map(c => c.id);
+
+  $: allClientEntries = $timeEntryStore.filter(entry => 
+    entry.clientId && clientHierarchyIds.includes(entry.clientId)
+  );
+  $: unbilledEntries = allClientEntries.filter(entry => !entry.billed);
+
+  $: clientTickets = $ticketStore.filter(ticket => 
+    ticket.clientId && clientHierarchyIds.includes(ticket.clientId)
+  );
 
   $: totalMinutes = unbilledEntries.reduce((sum, entry) => sum + entry.minutes, 0);
   $: totalBillableMinutes = unbilledEntries
@@ -38,17 +47,22 @@
       if (!client) return sum;
       let rate = 0;
       
-      // Get applicable billing rate override
-      const override = client.billingRateOverrides.find(o => o.baseRateId === entry.billingRateId);
-      if (override) {
+      if (entry.billingRateId) {
         const baseRate = $billingRates.find(r => r.id === entry.billingRateId);
         if (baseRate) {
-          rate = override.overrideType === 'fixed' 
-            ? override.value 
-            : (baseRate.rate * override.value / 100);
+          // Get effective rate considering the client hierarchy
+          const entryClient = $clientStore.find(c => c.id === entry.clientId);
+          if (entryClient) {
+            const override = getEffectiveBillingRateOverride($clientStore, entry.clientId, entry.billingRateId);
+            if (override) {
+              rate = override.overrideType === 'fixed'
+                ? override.value
+                : baseRate.rate * (override.value / 100);
+            } else {
+              rate = baseRate.rate;
+            }
+          }
         }
-      } else if (entry.billingRate) {
-        rate = entry.billingRate.rate;
       }
       
       return sum + (entry.minutes / 60 * rate);
@@ -147,7 +161,7 @@
   function getRateWithOverride(baseRate: BillingRate) {
     if (!client) return baseRate.rate;
 
-    const override = client.billingRateOverrides.find(o => o.baseRateId === baseRate.id);
+    const override = getEffectiveBillingRateOverride($clientStore, client.id, baseRate.id);
     if (!override) return baseRate.rate;
 
     if (override.overrideType === 'fixed') {
@@ -171,19 +185,6 @@
         return User;
       default:
         return UserGroup;
-    }
-  }
-  
-  function getClientTypeEmoji(type: string) {
-    switch (type) {
-      case 'business':
-        return '🏢';
-      case 'container':
-        return '📁';
-      case 'individual':
-        return '👤';
-      default:
-        return '📋';
     }
   }
 </script>
@@ -218,8 +219,9 @@
               </div>
               <h1 class="text-2xl font-bold flex items-center">
                 {client.name}
-                <span class="ml-2 text-sm bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full">
-                  {getClientTypeEmoji(client.type)} {client.type}
+                <span class="ml-2 text-sm bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Icon src={getClientTypeIcon(client.type)} class="h-3 w-3" />
+                  {client.type}
                 </span>
               </h1>
               
@@ -228,10 +230,11 @@
                   <p>{client.description}</p>
                 {/if}
                 {#if parentClient}
-                  <p class="flex items-center">
-                    <span class="mr-2">Parent:</span>
-                    <a href={`/clients/${parentClient.id}`} class="text-blue-400 hover:text-blue-300">
-                      {parentClient.name} {getClientTypeEmoji(parentClient.type)}
+                  <p class="flex items-center gap-2">
+                    <span>Parent:</span>
+                    <a href={`/clients/${parentClient.id}`} class="text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                      {parentClient.name}
+                      <Icon src={getClientTypeIcon(parentClient.type)} class="h-3 w-3" />
                     </a>
                   </p>
                 {/if}
@@ -304,7 +307,10 @@
                 </div>
                 <div>
                   <div class="font-medium">{child.name}</div>
-                  <div class="text-sm text-gray-400">{getClientTypeEmoji(child.type)} {child.type}</div>
+                  <div class="text-sm text-gray-400 flex items-center gap-1">
+                    <Icon src={getClientTypeIcon(child.type)} class="h-3 w-3" />
+                    {child.type}
+                  </div>
                 </div>
               </a>
             {/each}
@@ -364,9 +370,9 @@
         <!-- Tab Content -->
         <div class="p-6">
           {#if activeTab === 'tickets'}
-            <TicketList clientId={client.id} />
+            <TicketList clientId={client.id} includeChildClients={true} />
           {:else if activeTab === 'time-entries'}
-            <TimeEntryList clientId={client.id} />
+            <TimeEntryList clientId={client.id} includeChildClients={true} />
           {:else if activeTab === 'invoices'}
             {#if isLoading}
               <div class="text-center py-12">

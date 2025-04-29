@@ -1,53 +1,50 @@
 <script lang="ts">
-  import { writable } from 'svelte/store';
   import { onMount } from 'svelte';
-  import { TicketForm, GlassCard, Modal, DataTable } from '$lib/components';
-  import type { Ticket, NewTicket } from '$lib/types';
+  import { TicketForm, GlassCard, Modal, DataTable, StatusBadge } from '$lib/components';
+  import type { Ticket, NewTicket, TicketStatus } from '$lib/types';
   import { ticketStore } from '$lib/stores/ticketStore';
   import { clientStore } from '$lib/stores/clientStore';
+  import { settingsStore } from '$lib/stores/settingsStore';
   import { Icon } from '@steeze-ui/svelte-icon';
   import { Ticket as TicketIcon, Plus, ArrowPath } from '@steeze-ui/heroicons';
 
-  // State management
-  let showForm = writable<boolean>(false);
-  let editingTicket = writable<Ticket | null>(null);
-  let isLoading = writable<boolean>(true);
-  let tickets: Ticket[] = [];
-  let searchTerm = '';
-  let currentPage = 1;
-  let pageSize = 10;
+  // State management using Svelte 5 runes
+  let showForm = $state(false);
+  let editingTicket = $state<Ticket | null>(null);
+  let isLoading = $state(true);
+  let tickets = $state<Ticket[]>([]);
+  let ticketStatuses = $state<TicketStatus[]>([]);
+  let searchTerm = $state('');
+  let currentPage = $state(1);
+  let pageSize = $state(10);
+  
+  // Prevent multiple concurrent loads
+  let isProcessingTickets = false;
   
   // Define DataTable columns
   const columns = [
     {
-      key: 'title',
-      title: 'Title',
-      sortable: true,
-      render: (value, row) => {
-        return `<a href="/tickets/${row.id}" class="font-medium text-blue-400 hover:text-blue-300">${value}</a>`;
-      }
-    },
-    {
       key: 'client.name',
       title: 'Client',
       sortable: true,
-      render: (value, row) => {
-        if (row.client) {
-          return `<a href="/clients/${row.clientId}" class="hover:text-blue-400">${value}</a>`;
-        }
-        return `<span class="text-gray-400">Unknown Client</span>`;
-      }
+      formatter: (value) => value || 'Unknown'
+    },
+    {
+      key: 'title',
+      title: 'Ticket',
+      sortable: true
     },
     {
       key: 'status.name',
       title: 'Status',
       sortable: true,
-      render: (value, row) => {
-        if (!row.status) return `<span class="text-gray-400">Unknown</span>`;
-        const color = row.status.color || 'gray';
-        return `<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-${color}-500/10 text-${color}-400">
-          ${value}
-        </span>`;
+      formatter: (value) => value || 'No Status',
+      cellClass: (value, row) => {
+        const status = row.status;
+        if (!status) return 'status-badge status-badge-gray';
+        
+        const colorName = status.color?.replace('#', '') || '718096';
+        return `status-badge status-badge-${colorName}`;
       }
     },
     {
@@ -70,8 +67,8 @@
       render: (id) => {
         return `<div class="flex justify-end gap-2">
           <button class="table-action-button" data-action="edit" data-id="${id}">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M11 5H6C4.89543 5 4 5.89543 4 7V18C4 19.1046 4.89543 20 6 20H17C18.1046 20 19 19.1046 19 18V13M17.5858 3.58579C18.3668 2.80474 19.6332 2.80474 20.4142 3.58579C21.1953 4.36683 21.1953 5.63316 20.4142 6.41421L11.8284 15H9L9 12.1716L17.5858 3.58579Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
             </svg>
           </button>
         </div>`;
@@ -81,47 +78,95 @@
   
   // Load tickets data when page mounts
   onMount(async () => {
+    await loadPageData();
+  });
+
+  // Separate function to load data to avoid duplication
+  async function loadPageData() {
+    isLoading = true;
+    
     try {
+      // Load in parallel for efficiency
+      const statusesPromise = settingsStore.loadTicketStatuses();
       await Promise.all([
         ticketStore.load(),
         clientStore.load()
       ]);
       
-      tickets = $ticketStore.map(ticket => {
+      // Get ticket statuses from the promise
+      ticketStatuses = await statusesPromise;
+      
+      // Process tickets with client and status data
+      processTickets();
+    } catch (error) {
+      console.error('Failed to load tickets page data:', error);
+    } finally {
+      isLoading = false;
+    }
+  }
+  
+  // Process tickets with client and status data
+  function processTickets() {
+    // Prevent reentrance that could cause infinite loops
+    if (isProcessingTickets) return;
+    
+    try {
+      isProcessingTickets = true;
+      
+      const allTickets = ticketStore.getAll();
+      let clients = [];
+      
+      // Use store subscription pattern to get clients
+      // This subscription is executed once and immediately unsubscribed
+      clientStore.subscribe(value => { 
+        clients = value; 
+      })();
+      
+      // Create a new array to avoid modifying existing tickets
+      const processedTickets = allTickets.map(ticket => {
         // Find the client for this ticket
-        const client = $clientStore.find(c => c.id === ticket.clientId);
+        const client = clients.find(c => c.id === ticket.clientId);
+        
+        // Find status for this ticket
+        const status = ticketStatuses.find(s => s.id === ticket.statusId);
+        
         return {
           ...ticket,
-          client
+          client,
+          status
         };
       });
       
-      $isLoading = false;
-    } catch (error) {
-      console.error('Failed to load tickets:', error);
-      $isLoading = false;
+      // Only update tickets if they've actually changed
+      tickets = processedTickets;
+    } finally {
+      isProcessingTickets = false;
     }
-  });
+  }
 
   // Event handlers
   function handleEdit(ticket: Ticket) {
-    $editingTicket = ticket;
-    $showForm = true;
+    editingTicket = ticket;
+    showForm = true;
   }
 
   async function handleSubmit(ticket: Partial<Ticket>) {
+    if (!ticket) return;
+    
     try {
-      if ($editingTicket) {
-        await ticketStore.update($editingTicket.id, ticket);
+      if (editingTicket) {
+        await ticketStore.update(editingTicket.id, ticket);
       } else {
         // Cast to NewTicket since we know required fields will be present
         await ticketStore.add(ticket as NewTicket);
       }
-      $editingTicket = null;
-      $showForm = false;
+      
+      // Reset form state
+      editingTicket = null;
+      showForm = false;
       
       // Refresh data
-      refreshTickets();
+      await refreshTickets();
     } catch (error) {
       console.error('Failed to save ticket:', error);
       alert('Failed to save ticket');
@@ -129,8 +174,8 @@
   }
 
   function handleCancel() {
-    $editingTicket = null;
-    $showForm = false;
+    editingTicket = null;
+    showForm = false;
   }
   
   function handleRowClick(event) {
@@ -156,23 +201,26 @@
     }
   }
   
-  function refreshTickets() {
-    $isLoading = true;
+  async function refreshTickets() {
+    isLoading = true;
     
-    Promise.all([
-      ticketStore.load(true),
-      clientStore.load()
-    ]).then(() => {
-      tickets = $ticketStore.map(ticket => {
-        const client = $clientStore.find(c => c.id === ticket.clientId);
-        return {
-          ...ticket,
-          client
-        };
-      });
+    try {
+      const statusesPromise = settingsStore.loadTicketStatuses();
+      await Promise.all([
+        ticketStore.load(true), // Force reload
+        clientStore.load()
+      ]);
       
-      $isLoading = false;
-    });
+      // Wait for ticket statuses to finish loading before processing
+      ticketStatuses = await statusesPromise;
+      
+      // Process tickets with the fresh data
+      processTickets();
+    } catch (error) {
+      console.error('Failed to refresh tickets:', error);
+    } finally {
+      isLoading = false;
+    }
   }
 </script>
 
@@ -187,14 +235,14 @@
         <button
           type="button"
           class="btn btn-secondary flex items-center gap-2"
-          on:click={refreshTickets}
+          onclick={refreshTickets}
         >
           <Icon src={ArrowPath} class="w-4 h-4" />
           <span>Refresh</span>
         </button>
         <button
           class="btn btn-primary flex items-center gap-2"
-          on:click={() => $showForm = true}
+          onclick={() => showForm = true}
         >
           <Icon src={Plus} class="w-4 h-4" />
           <span>New Ticket</span>
@@ -205,9 +253,9 @@
 
   <DataTable
     data={tickets}
-    {columns}
+    columns={columns}
     title="Ticket List"
-    loading={$isLoading}
+    loading={isLoading}
     searchable={true}
     pageable={true}
     bind:currentPage
@@ -220,16 +268,17 @@
 </div>
 
 <Modal
-  open={$showForm}
-  title={$editingTicket ? 'Edit Ticket' : 'New Ticket'}
+  open={showForm}
+  title={editingTicket ? 'Edit Ticket' : 'New Ticket'}
   width="max-w-2xl"
   hasFooter={false}
   on:close={handleCancel}
 >
   <div class="p-6">
     <TicketForm 
-      editTicket={$editingTicket}
+      editTicket={editingTicket}
       onSubmit={handleSubmit}
+      onCancel={handleCancel}
     />
   </div>
 </Modal>

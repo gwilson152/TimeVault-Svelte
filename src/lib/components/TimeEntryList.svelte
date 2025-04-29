@@ -11,10 +11,12 @@
   import { Icon } from '@steeze-ui/svelte-icon';
   import { LockClosed, MagnifyingGlass } from '@steeze-ui/heroicons';
   import { settingsStore } from '$lib/stores/settingsStore';
+  import { getClientHierarchy } from '$lib/utils/clientUtils';
 
   export let clientId: string | undefined = undefined;
   export let showForm = false; // Default to not showing the full form
   export let filter: string = 'all';
+  export let includeChildClients = false; // New prop to include child clients
   
   let searchText = '';
   let loading = false;
@@ -25,7 +27,15 @@
   // Apply filtering and searching to entries
   $: baseEntries = ($entriesWithClientInfo || [])
     .filter((e): e is NonNullable<typeof e> => e !== null)
-    .filter(e => !clientId || e.clientId === clientId)
+    .filter(e => {
+      if (!clientId) return true;
+      if (!includeChildClients) return e.clientId === clientId;
+      
+      // If including child clients, get the hierarchy and filter by all client IDs
+      const hierarchy = getClientHierarchy($clientStore, clientId);
+      const clientIds = hierarchy.map(c => c.id);
+      return e.clientId && clientIds.includes(e.clientId);
+    })
     .map(entry => ({
       ...entry,
       durationHours: entry.minutes / 60,
