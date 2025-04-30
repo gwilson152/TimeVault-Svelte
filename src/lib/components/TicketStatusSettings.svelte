@@ -123,7 +123,7 @@
     <h2 class="text-xl font-semibold">Ticket Status Settings</h2>
     <button
       class="btn btn-primary"
-      on:click={() => showForm = true}
+      onclick={() => showForm = true}
     >
       Add New Status
     </button>
@@ -164,13 +164,13 @@
                 <div class="flex justify-end space-x-2">
                   <button
                     class="table-action-button-primary"
-                    on:click={() => startEdit(status)}
+                    onclick={() => startEdit(status)}
                   >
                     Edit
                   </button>
                   <button
                     class="table-action-button-danger"
-                    on:click={() => handleDeleteStatus(status)}
+                    onclick={() => handleDeleteStatus(status)}
                   >
                     Delete
                   </button>
@@ -198,7 +198,7 @@
           id="statusName"
           type="text"
           bind:value={currentName}
-          on:input={(e) => updateField('name', e.currentTarget.value)}
+          oninput={(e) => updateField('name', e.currentTarget.value)}
           class="form-input"
           required
         />
@@ -210,7 +210,7 @@
           id="statusColor"
           type="color"
           bind:value={currentColor}
-          on:input={(e) => updateField('color', e.currentTarget.value)}
+          oninput={(e) => updateField('color', e.currentTarget.value)}
           class="form-input h-[42px]"
         />
       </div>
@@ -221,7 +221,7 @@
           id="statusSortOrder"
           type="number"
           bind:value={currentSortOrder}
-          on:input={(e) => updateField('sortOrder', parseInt(e.currentTarget.value))}
+          oninput={(e) => updateField('sortOrder', parseInt(e.currentTarget.value))}
           class="form-input"
           min="0"
         />
@@ -232,7 +232,7 @@
           <input
             type="checkbox"
             bind:checked={currentIsDefault}
-            on:change={(e) => updateField('isDefault', e.currentTarget.checked)}
+            onchange={(e) => updateField('isDefault', e.currentTarget.checked)}
             class="form-checkbox"
           />
           <span class="ml-2">Default Status</span>
@@ -242,7 +242,7 @@
           <input
             type="checkbox"
             bind:checked={currentIsClosed}
-            on:change={(e) => updateField('isClosed', e.currentTarget.checked)}
+            onchange={(e) => updateField('isClosed', e.currentTarget.checked)}
             class="form-checkbox"
           />
           <span class="ml-2">Closed Status</span>

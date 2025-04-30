@@ -101,6 +101,7 @@ model Invoice {
   totalCost     Float          @default(0)
   totalProfit   Float          @default(0)
   date          DateTime       @default(now())
+  sent          Boolean        @default(false) // Track whether invoice has been sent
   client        Client         @relation(fields: [clientId], references: [id])
   entries       TimeEntry[]
   addons        InvoiceAddon[]

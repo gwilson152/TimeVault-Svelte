@@ -162,6 +162,17 @@
 	onMount(async () => {
 		try {
 			await Promise.all([clientStore.load(), timeEntryStore.load()]);
+
+			// Check for edit parameter in URL
+			const params = new URLSearchParams(window.location.search);
+			const editId = params.get('edit');
+			if (editId) {
+				const entryToEdit = $entriesWithClientInfo.find(e => e.id === editId);
+				if (entryToEdit) {
+					editingEntry = entryToEdit;
+					showForm = true;
+				}
+			}
 		} catch (error) {
 			console.error('Failed to load data:', error);
 		} finally {
@@ -194,13 +205,24 @@
 	}
 
 	// Handle entry creation completion
-	function handleSaveEntry() {
-		// Refresh data
-		timeEntryStore.load();
-
-		// Close modal
-		showForm = false;
-		editingEntry = null;
+	async function handleSaveEntry(savedEntry: TimeEntry) {
+		try {
+			// Update the entries list directly instead of reloading everything
+			if (editingEntry) {
+				entries = entries.map(e => e.id === savedEntry.id ? savedEntry : e);
+			} else {
+				entries = [...entries, savedEntry];
+			}
+			
+			// Recalculate filtered entries
+			filteredEntries = filterEntries(entries, selectedFilter);
+			
+			// Close modal
+			showForm = false;
+			editingEntry = null;
+		} catch (error) {
+			console.error('Failed to update entries:', error);
+		}
 	}
 
 	// Handle bulk entry completion
@@ -307,7 +329,7 @@
 
 				<!-- Action buttons -->
 				<div class="ml-auto flex gap-2">
-					<button class="btn btn-secondary flex items-center gap-2" on:click={refreshEntries}>
+					<button class="btn btn-secondary flex items-center gap-2" onclick={refreshEntries}>
 						<Icon src={ArrowPath} class="h-4 w-4" />
 						<span>Refresh</span>
 					</button>
@@ -317,7 +339,7 @@
 					</a>
 					<button
 						class="btn btn-primary"
-						on:click={() => {
+						onclick={() => {
 							editingEntry = null;
 							showForm = true;
 						}}
@@ -338,7 +360,7 @@
 					class="rounded-full px-3 py-1.5 text-sm transition-colors {selectedFilter === 'all'
 						? 'bg-blue-500 text-white'
 						: 'bg-container-glass hover:bg-container-glass-hover'}"
-					on:click={() => (selectedFilter = 'all')}
+					onclick={() => (selectedFilter = 'all')}
 				>
 					All
 				</button>
@@ -346,7 +368,7 @@
 					class="rounded-full px-3 py-1.5 text-sm transition-colors {selectedFilter === 'billable'
 						? 'bg-blue-500 text-white'
 						: 'bg-container-glass hover:bg-container-glass-hover'}"
-					on:click={() => (selectedFilter = 'billable')}
+					onclick={() => (selectedFilter = 'billable')}
 				>
 					Billable
 				</button>
@@ -354,7 +376,7 @@
 					class="rounded-full px-3 py-1.5 text-sm transition-colors {selectedFilter === 'unbilled'
 						? 'bg-blue-500 text-white'
 						: 'bg-container-glass hover:bg-container-glass-hover'}"
-					on:click={() => (selectedFilter = 'unbilled')}
+					onclick={() => (selectedFilter = 'unbilled')}
 				>
 					Unbilled
 				</button>
@@ -362,7 +384,7 @@
 					class="rounded-full px-3 py-1.5 text-sm transition-colors {selectedFilter === 'billed'
 						? 'bg-blue-500 text-white'
 						: 'bg-container-glass hover:bg-container-glass-hover'}"
-					on:click={() => (selectedFilter = 'billed')}
+					onclick={() => (selectedFilter = 'billed')}
 				>
 					Billed
 				</button>
@@ -382,7 +404,7 @@
 		bind:pageSize
 		footerContent={tableFooter}
 		searchPlaceholder="Search time entries..."
-		on:click={handleCellClick}
+		onclick={handleCellClick}
 		on:rowClick={handleRowClick}
 		on:selection={(e) => (selectedEntries = e.detail.rows)}
 		emptyMessage={selectedFilter !== 'all'

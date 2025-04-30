@@ -325,7 +325,7 @@
             class="px-6 py-4 text-sm font-medium transition-colors {activeTab === 'tickets' ? 'bg-white/5' : ''} 
               {activeTab === 'tickets' ? 'text-blue-400' : 'text-gray-400'} 
               {activeTab !== 'tickets' ? 'hover:text-blue-400 hover:bg-white/5' : ''}"
-            on:click={() => activeTab = 'tickets'}
+            onclick={() => activeTab = 'tickets'}
           >
             <div class="flex items-center gap-2">
               <Icon src={DocumentText} class="h-4 w-4" />
@@ -336,7 +336,7 @@
             class="px-6 py-4 text-sm font-medium transition-colors {activeTab === 'time-entries' ? 'bg-white/5' : ''} 
               {activeTab === 'time-entries' ? 'text-blue-400' : 'text-gray-400'} 
               {activeTab !== 'time-entries' ? 'hover:text-blue-400 hover:bg-white/5' : ''}"
-            on:click={() => activeTab = 'time-entries'}
+            onclick={() => activeTab = 'time-entries'}
           >
             <div class="flex items-center gap-2">
               <Icon src={Clock} class="h-4 w-4" />
@@ -347,7 +347,7 @@
             class="px-6 py-4 text-sm font-medium transition-colors {activeTab === 'invoices' ? 'bg-white/5' : ''} 
               {activeTab === 'invoices' ? 'text-blue-400' : 'text-gray-400'} 
               {activeTab !== 'invoices' ? 'hover:text-blue-400 hover:bg-white/5' : ''}"
-            on:click={() => activeTab = 'invoices'}
+            onclick={() => activeTab = 'invoices'}
           >
             <div class="flex items-center gap-2">
               <Icon src={DocumentText} class="h-4 w-4" />
@@ -358,7 +358,7 @@
             class="px-6 py-4 text-sm font-medium transition-colors {activeTab === 'settings' ? 'bg-white/5' : ''} 
               {activeTab === 'settings' ? 'text-blue-400' : 'text-gray-400'} 
               {activeTab !== 'settings' ? 'hover:text-blue-400 hover:bg-white/5' : ''}"
-            on:click={() => activeTab = 'settings'}
+            onclick={() => activeTab = 'settings'}
           >
             <div class="flex items-center gap-2">
               <Icon src={ChartPie} class="h-4 w-4" />
@@ -530,7 +530,7 @@
                               <button
                                 class="p-2 rounded hover:bg-gray-700/50 text-green-400"
                                 class:opacity-50={isSaving}
-                                on:click={updateRateOverride}
+                                onclick={updateRateOverride}
                                 disabled={isSaving}
                                 title="Save changes"
                               >
@@ -538,7 +538,7 @@
                               </button>
                               <button
                                 class="p-2 rounded hover:bg-gray-700/50 text-red-400"
-                                on:click={() => editingOverride = null}
+                                onclick={() => editingOverride = null}
                                 disabled={isSaving}
                                 title="Cancel"
                               >
@@ -547,7 +547,7 @@
                             {:else}
                               <button
                                 class="p-2 rounded hover:bg-gray-700/50 text-blue-400"
-                                on:click={() => {
+                                onclick={() => {
                                   const override = client.billingRateOverrides.find(o => o.baseRateId === rate.id);
                                   editingOverride = override ? {
                                     rateId: rate.id,
@@ -566,7 +566,7 @@
                               {#if client.billingRateOverrides.find(o => o.baseRateId === rate.id)}
                                 <button
                                   class="p-2 rounded hover:bg-gray-700/50 text-red-400"
-                                  on:click={async () => {
+                                  onclick={async () => {
                                     if (!confirm('Are you sure you want to remove this rate override?')) return;
                                     if (!client) return;
                                     

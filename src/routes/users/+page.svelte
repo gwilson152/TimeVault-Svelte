@@ -258,7 +258,7 @@
       
       <button 
         class="btn btn-primary" 
-        on:click={openCreateUserForm}
+        onclick={openCreateUserForm}
       >
         Create User
       </button>
@@ -277,7 +277,7 @@
         <p class="text-red-500">{error}</p>
         <button 
           class="mt-4 btn btn-secondary" 
-          on:click={() => { isLoading = true; loadUsers().finally(() => isLoading = false); }}
+          onclick={() => { isLoading = true; loadUsers().finally(() => isLoading = false); }}
         >
           Retry
         </button>
@@ -289,7 +289,7 @@
         <p class="text-gray-400">No users found</p>
         <button 
           class="mt-4 btn btn-primary" 
-          on:click={openCreateUserForm}
+          onclick={openCreateUserForm}
         >
           Create First User
         </button>
@@ -338,13 +338,13 @@
                   <div class="flex justify-end gap-2">
                     <button 
                       class="table-action-button-primary"
-                      on:click={() => openEditUserForm(user)}
+                      onclick={() => openEditUserForm(user)}
                     >
                       Edit
                     </button>
                     <button 
                       class="table-action-button-danger"
-                      on:click={() => handleDeleteUser(user.id)}
+                      onclick={() => handleDeleteUser(user.id)}
                     >
                       Delete
                     </button>

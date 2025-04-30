@@ -263,7 +263,7 @@
     searchPlaceholder="Search tickets..."
     emptyMessage="No tickets found. Add a new ticket to get started."
     on:rowClick={handleRowClick}
-    on:click={handleCellClick}
+    onclick={handleCellClick}
   />
 </div>
 

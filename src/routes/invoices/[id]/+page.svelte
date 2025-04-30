@@ -3,6 +3,8 @@
 	import { GlassCard, Modal, StatsCard } from '$lib/components';
 	import { formatCurrency, formatDate, formatTime } from '$lib/utils/invoiceUtils';
 	import { clientStore } from '$lib/stores/clientStore';
+	import { settingsStore } from '$lib/stores/settingsStore'; // Add missing import
+	import { timeEntryStore } from '$lib/stores/timeEntryStore';
 	import * as api from '$lib/services/api';
 	import { Icon } from '@steeze-ui/svelte-icon';
 	import {
@@ -25,7 +27,7 @@
 		ShoppingBag,
 		ChartPie
 	} from '@steeze-ui/heroicons';
-	import type { Invoice, InvoiceAddon, TimeEntry } from '$lib/types';
+	import type { Invoice, InvoiceAddon, TimeEntry, Client } from '$lib/types';
 	import { page } from '$app/stores';
 
 	// We need to use the page store to safely access the params during SSR
@@ -35,17 +37,26 @@
 	let invoice = $state<Invoice | null>(null);
 	let isLoading = $state(true);
 	let error = $state<string | null>(null);
+	let errorMessage = $state<string | null>(null); // Add missing errorMessage state variable
 	let isPresentationMode = $state(false);
 	let isEditMode = $state(false);
 	let showPrintDialog = $state(false);
 	let showExportDialog = $state(false);
 	let showSendDialog = $state(false);
+	let showDeleteDialog = $state(false);
+	let showRevertDialog = $state(false);
+	let showAddEntriesModal = $state(false);
 	let editableInvoice = $state<Invoice | null>(null);
 	let isSaving = $state(false);
 	let exportingPDF = $state(false);
 	let isSent = $state(false);
 	let showTimeEntryModal = $state(false);
 	let currentTimeEntry = $state<TimeEntry | null>(null);
+	let availableTimeEntries = $state<TimeEntry[]>([]);
+	let selectedEntries = $state<string[]>([]);
+	let isAddingEntries = $state(false);
+	let timeEntriesSuccessMessage = $state<string | null>(null);
+	let clients = $state<Client[]>([]);
 
 	// Derive calculated values
 	const addonTotal = $derived(
@@ -69,6 +80,19 @@
 		editableInvoice ? (editableInvoice.totalAmount || 0) + editableAddonTotal : 0
 	);
 
+	// Determine if a time entry's client is different from the invoice client
+	const isDifferentClient = $derived((entry: TimeEntry) => {
+		return entry.clientId && invoice?.clientId && entry.clientId !== invoice.clientId;
+	});
+
+	// Get client name for display
+	function getClientName(clientId: string | null): string | null {
+		if (!clientId) return null;
+		
+		const client = clients.find(c => c.id === clientId);
+		return client ? client.name : null;
+	}
+
 	function calculateInvoiceTotal(invoice: Invoice): number {
 		if (!invoice) return 0;
 
@@ -84,23 +108,35 @@
 	}
 
 	onMount(async () => {
+		isLoading = true;
+
 		try {
-			await clientStore.load();
-			const invoices = await api.getInvoices();
-			invoice = invoices.find((inv) => inv.id === invoiceId) || null;
+			// Load stores in parallel
+			await Promise.all([
+				clientStore.load(),
+				settingsStore.load(),
+				timeEntryStore.load()
+			]);
+			
+			// Get clients for name lookup
+			clientStore.subscribe(value => {
+				clients = value;
+			})();
 
-			if (!invoice) {
-				error = 'Invoice not found';
-				return;
-			}
+			// Load the specific invoice by ID using the API service
+			invoice = await api.getInvoice(invoiceId);
+			editableInvoice = invoice ? JSON.parse(JSON.stringify(invoice)) : null;
 
-			// Determine if invoice has been sent
-			isSent = invoice.sent || false;
-
-			isLoading = false;
-		} catch (err) {
-			console.error('Error loading invoice:', err);
-			error = 'Failed to load invoice data. Please try again.';
+			// Calculate view-specific values
+			isSent = invoice?.sent || false;
+			isPresentationMode = false;
+			// Removed direct assignments to derived values that were causing errors
+			// addonTotal and combinedTotal will update automatically through reactivity
+			
+		} catch (error) {
+			console.error('Failed to load invoice:', error);
+			errorMessage = error instanceof Error ? error.message : 'Failed to load invoice';
+		} finally {
 			isLoading = false;
 		}
 	});
@@ -108,6 +144,78 @@
 	// Toggle presentation mode for cleaner view/printing
 	function togglePresentationMode() {
 		isPresentationMode = !isPresentationMode;
+	}
+
+	// Function to load available time entries for the client
+	function openAddEntriesModal() {
+		if (!invoice || !invoice.clientId) return;
+
+		// Get unbilled entries for this client
+		availableTimeEntries = timeEntryStore.getUnbilledByClientId(invoice.clientId, true);
+
+		// Reset selection
+		selectedEntries = [];
+		showAddEntriesModal = true;
+	}
+
+	// Toggle selection of a time entry
+	function toggleEntrySelection(entryId: string) {
+		if (selectedEntries.includes(entryId)) {
+			selectedEntries = selectedEntries.filter(id => id !== entryId);
+		} else {
+			selectedEntries = [...selectedEntries, entryId];
+		}
+	}
+
+	// Add selected time entries to the invoice
+	async function addEntriesToInvoice() {
+		if (!invoice || selectedEntries.length === 0 || isSent || isAddingEntries) return;
+
+		try {
+			isAddingEntries = true;
+
+			// Get the full time entry objects
+			const entriesToAdd = availableTimeEntries.filter(entry => 
+				selectedEntries.includes(entry.id)
+			);
+
+			if (entriesToAdd.length === 0) return;
+
+			// Update each entry to associate with this invoice
+			const updatePromises = entriesToAdd.map(entry => 
+				api.updateTimeEntry(entry.id, {
+					invoiceId: invoice!.id,
+					billed: true,
+					locked: true,
+					billedRate: entry.billingRate?.rate // Store the current rate
+				})
+			);
+
+			// Wait for all updates to complete
+			await Promise.all(updatePromises);
+
+			// Refresh the invoice to get updated data
+			invoice = await api.getInvoice(invoiceId);
+
+			// Close the modal
+			showAddEntriesModal = false;
+
+			// Display success message
+			timeEntriesSuccessMessage = `Successfully added ${entriesToAdd.length} time ${entriesToAdd.length === 1 ? 'entry' : 'entries'} to the invoice`;
+
+			// Clear success message after 3 seconds
+			setTimeout(() => {
+				timeEntriesSuccessMessage = null;
+			}, 3000);
+
+			// Reload time entries to update the available entries
+			await timeEntryStore.load();
+		} catch (error) {
+			console.error('Failed to add time entries to invoice:', error);
+			errorMessage = error instanceof Error ? error.message : 'Failed to add time entries to invoice';
+		} finally {
+			isAddingEntries = false;
+		}
 	}
 
 	// Print the invoice
@@ -199,6 +307,7 @@
 						<tr>
 							<th>Description</th>
 							<th>Date</th>
+								<th>Client</th>
 							<th class="amount">Duration</th>
 							<th class="amount">Rate</th>
 							<th class="amount">Amount</th>
@@ -211,6 +320,7 @@
 								<tr>
 									<td>${entry.description}</td>
 									<td>${formatDate(entry.date)}</td>
+										<td>${entry.clientId !== invoice.clientId ? getClientName(entry.clientId) || '' : ''}</td>
 									<td class="amount">${formatTime(entry.minutes / 60, 'formatted')}</td>
 									<td class="amount">${formatCurrency(entry.billingRate?.rate || 0)}/hr</td>
 									<td class="amount">${formatCurrency((entry.billingRate?.rate || 0) * (entry.minutes / 60))}</td>
@@ -221,7 +331,7 @@
 					</tbody>
 					<tfoot>
 						<tr>
-							<td colspan="2"><strong>Total Time Entries</strong></td>
+							<td colspan="3"><strong>Total Time Entries</strong></td>
 							<td class="amount"><strong>${formatTime(invoice.totalMinutes / 60, 'formatted')}</strong></td>
 							<td></td>
 							<td class="amount"><strong>${formatCurrency(invoice.totalAmount)}</strong></td>
@@ -402,6 +512,52 @@
 		}
 	}
 
+	// Delete invoice
+	async function deleteInvoice() {
+		if (!invoice) return;
+
+		try {
+			await api.deleteInvoice(invoice.id);
+
+			// Show success message
+			const notification = document.createElement('div');
+			notification.className =
+				'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg z-50';
+			notification.innerText = 'Invoice deleted successfully';
+			document.body.appendChild(notification);
+
+			// Redirect after short delay
+			setTimeout(() => {
+				window.location.href = '/invoices';
+			}, 1500);
+		} catch (err) {
+			console.error('Failed to delete invoice:', err);
+			alert('Failed to delete invoice. Please try again.');
+		}
+	}
+
+	// Revert sent status
+	async function revertSentStatus() {
+		if (!invoice) return;
+
+		try {
+			const updatedInvoice = await api.updateInvoice(invoice.id, { ...invoice, sent: false });
+			invoice = updatedInvoice;
+			isSent = false;
+			showRevertDialog = false;
+
+			// Show success message
+			const notification = document.createElement('div');
+			notification.className =
+				'fixed top-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg z-50';
+			notification.innerText = 'Invoice reverted to draft';
+			document.body.appendChild(notification);
+		} catch (err) {
+			console.error('Failed to revert invoice:', err);
+			alert('Failed to revert invoice. Please try again.');
+		}
+	}
+
 	// Edit time entry
 	function editTimeEntry(entry: TimeEntry) {
 		currentTimeEntry = JSON.parse(JSON.stringify(entry));
@@ -413,12 +569,18 @@
 		if (!currentTimeEntry || !invoice || isSent) return;
 
 		try {
+
+			// Prevent removing entries from sent invoices
+			if (invoice.sent) {
+				throw new Error('Cannot remove entries from a sent invoice');
+			}
+
 			// Update the time entry to disassociate it from invoice
 			await api.updateTimeEntry(currentTimeEntry.id, {
-				...currentTimeEntry,
 				invoiceId: null,
 				billed: false,
-				locked: false
+				locked: false,
+				billedRate: null // Clear the billed rate when removing from invoice
 			});
 
 			// Remove the entry from the current invoice
@@ -428,9 +590,15 @@
 				// Recalculate invoice totals
 				const totalMinutes = invoice.entries.reduce((sum, entry) => sum + entry.minutes, 0);
 				const totalAmount = invoice.entries.reduce(
-					(sum, entry) => sum + (entry.billingRate?.rate || 0) * (entry.minutes / 60),
+					(sum, entry) => {
+						// Use billedRate if available, otherwise use current rate
+						const rate = entry.billedRate ?? (entry.billingRate?.rate || 0);
+						return sum + rate * (entry.minutes / 60);
+					},
 					0
 				);
+
+				// Update invoice totals including cost and profit
 				const totalCost = invoice.entries.reduce(
 					(sum, entry) => sum + (entry.billingRate?.cost || 0) * (entry.minutes / 60),
 					0
@@ -457,7 +625,7 @@
 			setTimeout(() => notification.remove(), 3000);
 		} catch (err) {
 			console.error('Failed to remove time entry from invoice:', err);
-			alert('Failed to remove time entry from invoice. Please try again.');
+			alert(err instanceof Error ? err.message : 'Failed to remove time entry from invoice. Please try again.');
 		}
 	}
 </script>
@@ -512,6 +680,28 @@
 			</div>
 		</GlassCard>
 	{:else if invoice}
+		{#if errorMessage}
+			<div class="mb-4 rounded-lg bg-red-500 bg-opacity-10 border border-red-500 border-opacity-20 text-red-400 p-4">
+				<div class="flex justify-between items-center">
+					<div>{errorMessage}</div>
+					<button class="text-red-400 hover:text-red-300" onclick={() => errorMessage = null}>
+						<Icon src={XMark} class="h-5 w-5" />
+					</button>
+				</div>
+			</div>
+		{/if}
+		
+		{#if timeEntriesSuccessMessage}
+			<div class="mb-4 rounded-lg bg-green-500 bg-opacity-10 border border-green-500 border-opacity-20 text-green-400 p-4">
+				<div class="flex justify-between items-center">
+					<div>{timeEntriesSuccessMessage}</div>
+					<button class="text-green-400 hover:text-green-300" onclick={() => timeEntriesSuccessMessage = null}>
+						<Icon src={XMark} class="h-5 w-5" />
+					</button>
+				</div>
+			</div>
+		{/if}
+
 		<div class="print-section flex flex-col gap-6">
 			<!-- Header - Actions and Status -->
 			<GlassCard className="p-6 hide-for-print">
@@ -580,7 +770,31 @@
 									<Icon src={Pencil} class="h-4 w-4" />
 									<span>Edit</span>
 								</button>
+
+								<button
+									class="btn btn-secondary flex items-center gap-2"
+									onclick={openAddEntriesModal}
+								>
+									<Icon src={PlusCircle} class="h-4 w-4" />
+									<span>Add Time Entries</span>
+								</button>
+							{:else}
+								<button
+									class="btn btn-secondary flex items-center gap-2"
+									onclick={() => (showRevertDialog = true)}
+								>
+									<Icon src={XMark} class="h-4 w-4" />
+									<span>Revert to Draft</span>
+								</button>
 							{/if}
+
+							<button
+								class="btn btn-danger flex items-center gap-2"
+								onclick={() => (showDeleteDialog = true)}
+							>
+								<Icon src={XMark} class="h-4 w-4" />
+								<span>Delete</span>
+							</button>
 						{:else}
 							<button
 								class="btn btn-secondary flex items-center gap-2"
@@ -751,64 +965,88 @@
 					<h3 class="mb-4 flex items-center text-lg font-semibold">
 						<span class="mr-2 inline-block h-4 w-1 rounded bg-blue-500"></span>
 						Time Entries
+						{#if invoice.entries.length === 0}
+							<span class="ml-4 text-sm text-gray-400">(No time entries)</span>
+						{/if}
 					</h3>
-					<div class="overflow-x-auto">
-						<table class="data-table w-full">
-							<thead class="data-table-header">
-								<tr>
-									<th>Description</th>
-									<th>Date</th>
-									<th class="right-aligned">Duration</th>
-									<th class="right-aligned">Rate</th>
-									<th class="right-aligned">Amount</th>
-									{#if isEditMode}
-										<th class="right-aligned w-16">Actions</th>
-									{/if}
-								</tr>
-							</thead>
-							<tbody>
-								{#each invoice.entries as entry}
-									<tr class="data-table-row">
-										<td>
-											<div class="font-medium">{entry.description}</div>
-										</td>
-										<td>{formatDate(entry.date)}</td>
-										<td class="right-aligned">
-											{formatTime(entry.minutes / 60, 'formatted')}
-										</td>
-										<td class="right-aligned">
-											{formatCurrency(entry.billingRate?.rate || 0)}/hr
-										</td>
-										<td class="right-aligned">
-											{formatCurrency((entry.billingRate?.rate || 0) * (entry.minutes / 60))}
-										</td>
+
+					{#if invoice.entries.length === 0}
+						<div class="rounded-lg bg-white/5 py-6 text-center text-gray-400">
+							No time entries have been added to this invoice yet.
+							{#if !isSent}
+								<div class="mt-2">
+									<a href="/time-entries" class="text-blue-400 hover:text-blue-300">
+										Add time entries from the Time Entries page
+									</a>
+								</div>
+							{/if}
+						</div>
+					{:else}
+						<div class="overflow-x-auto">
+							<table class="data-table w-full">
+								<thead class="data-table-header">
+									<tr>
+										<th>Description</th>
+										<th>Date</th>
+										<th>Client</th>
+										<th class="right-aligned">Duration</th>
+										<th class="right-aligned">Rate</th>
+										<th class="right-aligned">Amount</th>
 										{#if isEditMode}
-											<td class="right-aligned">
-												<button
-													class="rounded p-2 hover:bg-gray-700/50"
-													onclick={() => editTimeEntry(entry)}
-													disabled={isSent}
-													title="Edit time entry"
-												>
-													<Icon src={Pencil} class="h-4 w-4" />
-												</button>
-											</td>
+											<th class="right-aligned w-16">Actions</th>
 										{/if}
 									</tr>
-								{/each}
-							</tbody>
-							<tfoot class="data-table-footer">
-								<tr>
-									<td colspan="2">Time Entries Subtotal</td>
-									<td class="right-aligned">{formatTime(invoice.totalMinutes / 60, 'formatted')}</td
-									>
-									<td></td>
-									<td class="right-aligned">{formatCurrency(invoice.totalAmount)}</td>
-									{#if isEditMode}<td></td>{/if}
-								</tr>
-							</tfoot>
-						</table>
-					</div>
+								</thead>
+								<tbody>
+									{#each invoice.entries as entry}
+										<tr class="data-table-row">
+											<td>
+												<div class="font-medium">{entry.description}</div>
+											</td>
+											<td>{formatDate(entry.date)}</td>
+												<td>
+													{#if entry.clientId !== invoice.clientId}
+														<span class="text-blue-400">{getClientName(entry.clientId)}</span>
+													{:else}
+														<span class="text-gray-400">-</span>
+													{/if}
+												</td>
+											<td class="right-aligned">
+												{formatTime(entry.minutes / 60, 'formatted')}
+											</td>
+											<td class="right-aligned">
+												{formatCurrency(entry.billingRate?.rate || 0)}/hr
+											</td>
+											<td class="right-aligned">
+												{formatCurrency((entry.billingRate?.rate || 0) * (entry.minutes / 60))}
+											</td>
+											{#if isEditMode}
+												<td class="right-aligned">
+													<button
+														class="rounded p-2 hover:bg-gray-700/50"
+														onclick={() => editTimeEntry(entry)}
+														disabled={isSent}
+														title="Edit time entry"
+													>
+														<Icon src={Pencil} class="h-4 w-4" />
+													</button>
+												</td>
+											{/if}
+										</tr>
+									{/each}
+								</tbody>
+								<tfoot class="data-table-footer">
+									<tr>
+										<td colspan="3">Time Entries Subtotal</td>
+										<td class="right-aligned">{formatTime(invoice.totalMinutes / 60, 'formatted')}</td>
+										<td></td>
+										<td class="right-aligned">{formatCurrency(invoice.totalAmount)}</td>
+										{#if isEditMode}<td></td>{/if}
+									</tr>
+								</tfoot>
+							</table>
+						</div>
+					{/if}
 				</div>
 
 				<!-- Additional Items Section -->
@@ -1135,6 +1373,64 @@
 	{/snippet}
 </Modal>
 
+<!-- Delete Dialog Modal -->
+<Modal
+	open={showDeleteDialog}
+	title="Delete Invoice"
+	size="lg"
+	onclose={() => (showDeleteDialog = false)}
+>
+	<div class="p-6">
+		<p class="mb-4 text-gray-900">
+			Are you sure you want to delete invoice #{invoice?.invoiceNumber || 'Draft'}?
+		</p>
+		<p class="mb-4 text-sm text-gray-600">
+			This action cannot be undone. The invoice will be permanently removed from the system.
+		</p>
+		<div class="rounded bg-red-100 p-3 text-red-800">
+			<p class="text-sm">
+				Note: Ensure you have saved any necessary information before proceeding.
+			</p>
+		</div>
+	</div>
+
+	{#snippet footer()}
+		<div slot="footer" class="flex justify-end gap-3">
+			<button class="btn btn-secondary" onclick={() => (showDeleteDialog = false)}>Cancel</button>
+			<button class="btn btn-danger" onclick={deleteInvoice}>Delete</button>
+		</div>
+	{/snippet}
+</Modal>
+
+<!-- Revert Dialog Modal -->
+<Modal
+	open={showRevertDialog}
+	title="Revert to Draft"
+	size="lg"
+	onclose={() => (showRevertDialog = false)}
+>
+	<div class="p-6">
+		<p class="mb-4 text-gray-900">
+			Are you sure you want to revert invoice #{invoice?.invoiceNumber || 'Draft'} to draft status?
+		</p>
+		<p class="mb-4 text-sm text-gray-600">
+			This will unlock the invoice and allow you to make changes again.
+		</p>
+		<div class="rounded bg-blue-100 p-3 text-blue-800">
+			<p class="text-sm">
+				Note: Ensure you have communicated with the client about any changes before proceeding.
+			</p>
+		</div>
+	</div>
+
+	{#snippet footer()}
+		<div slot="footer" class="flex justify-end gap-3">
+			<button class="btn btn-secondary" onclick={() => (showRevertDialog = false)}>Cancel</button>
+			<button class="btn btn-primary" onclick={revertSentStatus}>Revert</button>
+		</div>
+	{/snippet}
+</Modal>
+
 <!-- Time Entry Edit Modal -->
 <Modal
 	open={showTimeEntryModal}
@@ -1187,6 +1483,70 @@
 					Remove from Invoice
 				</button>
 			{/if}
+		</div>
+	{/snippet}
+</Modal>
+
+<!-- Add Time Entries Modal -->
+<Modal
+	open={showAddEntriesModal}
+	title="Add Time Entries"
+	size="lg"
+	onclose={() => (showAddEntriesModal = false)}
+>
+	<div class="p-6">
+		{#if availableTimeEntries.length === 0}
+			<div class="text-center text-gray-400">
+				<p>No unbilled time entries available for this client.</p>
+			</div>
+		{:else}
+			<div class="overflow-x-auto">
+				<table class="data-table w-full">
+					<thead class="data-table-header">
+						<tr>
+							<th>Description</th>
+							<th>Date</th>
+							<th class="right-aligned">Duration</th>
+							<th class="right-aligned">Rate</th>
+							<th class="right-aligned">Amount</th>
+							<th class="right-aligned">Select</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each availableTimeEntries as entry}
+							<tr class="data-table-row">
+								<td>{entry.description}</td>
+								<td>{formatDate(entry.date)}</td>
+								<td class="right-aligned">{formatTime(entry.minutes / 60, 'formatted')}</td>
+								<td class="right-aligned">{formatCurrency(entry.billingRate?.rate || 0)}/hr</td>
+								<td class="right-aligned">
+									{formatCurrency((entry.billingRate?.rate || 0) * (entry.minutes / 60))}
+								</td>
+								<td class="right-aligned">
+									<input
+										type="checkbox"
+										checked={selectedEntries.includes(entry.id)}
+										onchange={() => toggleEntrySelection(entry.id)}
+									/>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	</div>
+
+	{#snippet footer()}
+		<div slot="footer" class="flex justify-end gap-3">
+			<button class="btn btn-secondary" onclick={() => (showAddEntriesModal = false)}>Cancel</button>
+			<button
+				class="btn btn-primary"
+				onclick={addEntriesToInvoice}
+				disabled={selectedEntries.length === 0 || isAddingEntries}
+			>
+				{isAddingEntries ? 'Adding...' : 'Add Selected Entries'}
+			</button>
 		</div>
 	{/snippet}
 </Modal>

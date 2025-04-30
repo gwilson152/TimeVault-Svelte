@@ -208,14 +208,14 @@
         <button
           type="button"
           class="btn btn-secondary flex items-center gap-2"
-          on:click={refreshClients}
+          onclick={refreshClients}
         >
           <Icon src={ArrowPath} class="w-4 h-4" />
           <span>Refresh</span>
         </button>
         <button
           class="btn btn-primary"
-          on:click={() => $showForm = true}
+          onclick={() => $showForm = true}
         >
           Add New Client
         </button>
@@ -238,7 +238,7 @@
     searchPlaceholder="Search clients..."
     emptyMessage="No clients found. Add a new client to get started."
     on:rowClick={handleRowClick}
-    on:click={handleCellClick}
+    onclick={handleCellClick}
   />
 </div>
 

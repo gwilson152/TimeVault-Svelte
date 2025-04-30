@@ -182,7 +182,7 @@
   {#if error}
     <div class="bg-red-500/10 text-red-400 p-4 rounded-lg border border-red-500/20">
       {error}
-      <button class="ml-2 underline" on:click={() => error = null}>Dismiss</button>
+      <button class="ml-2 underline" onclick={() => error = null}>Dismiss</button>
     </div>
   {/if}
 
@@ -200,7 +200,7 @@
           </div>
         </div>
         <div class="flex gap-2 mt-2 sm:mt-0">
-          <button class="btn btn-secondary" on:click={() => selectedEntries = new Set()}>
+          <button class="btn btn-secondary" onclick={() => selectedEntries = new Set()}>
             Deselect All
           </button>
           <!-- Add bulk actions here in the future -->
@@ -224,7 +224,7 @@
                   type="checkbox"
                   class="form-checkbox"
                   checked={selectedEntries.size === filteredEntries.length && filteredEntries.length > 0}
-                  on:change={toggleAllSelection}
+                  onchange={toggleAllSelection}
                 />
               </th>
               <th>Client</th>
@@ -244,7 +244,7 @@
                     type="checkbox"
                     class="form-checkbox"
                     checked={selectedEntries.has(entry.id)}
-                    on:change={() => toggleSelection(entry.id)}
+                    onchange={() => toggleSelection(entry.id)}
                     disabled={isEntryLocked(entry)}
                   />
                 </td>
@@ -307,7 +307,7 @@
                   <div class="flex justify-end gap-2">
                     <button
                       class="btn btn-primary mr-1"
-                      on:click={() => handleEdit(entry)}
+                      onclick={() => handleEdit(entry)}
                       disabled={loading || isEntryLocked(entry)}
                       class:opacity-50={isEntryLocked(entry)}
                       title={isEntryLocked(entry) ? "This time entry is locked" : "Edit this entry"}
@@ -316,7 +316,7 @@
                     </button>
                     <button
                       class="btn btn-danger"
-                      on:click={() => confirmDelete(entry)}
+                      onclick={() => confirmDelete(entry)}
                       disabled={loading || isEntryLocked(entry)}
                       class:opacity-50={isEntryLocked(entry)}
                       title={isEntryLocked(entry) ? "This time entry is locked" : "Delete this entry"}

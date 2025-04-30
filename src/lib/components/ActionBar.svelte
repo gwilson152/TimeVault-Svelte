@@ -30,7 +30,7 @@
       <!-- Theme toggle button -->
       <button
         class="group relative p-1 sm:p-2 hover:text-accentBlue transition-all duration-100 ease-in-out hover:scale-110 hover:shadow-[0_0_8px_rgba(59,130,246,0.5)] flex flex-col items-center"
-        on:click={toggleTheme}
+        onclick={toggleTheme}
         aria-label={currentTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
       >
         {#if currentTheme === 'dark'}

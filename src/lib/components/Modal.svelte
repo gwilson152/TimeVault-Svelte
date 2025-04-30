@@ -96,11 +96,11 @@
 	const variantClasses = $derived(() => {
 		switch (modalVariant) {
 			case 'drawer':
-				return 'fixed right-0 top-0 h-full w-full sm:max-w-md rounded-l-lg';
+				return 'fixed right-0 top-0 h-full rounded-l-lg ' + (modalSize === 'full' ? 'w-full' : 'w-full sm:w-3/4 md:w-1/2 lg:w-1/3');
 			case 'fullscreen':
 				return 'fixed inset-0 h-full w-full m-0 rounded-none';
 			default:
-				return `relative ${sizeToWidth} w-full m-4 md:m-8 rounded-lg`;
+				return `relative ${sizeToWidth} w-full mx-auto my-4 md:my-8 rounded-lg`;
 		}
 	});
 </script>

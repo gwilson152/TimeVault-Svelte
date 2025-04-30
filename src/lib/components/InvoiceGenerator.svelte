@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { writable } from 'svelte/store';
   import { clientStore } from '$lib/stores/clientStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
   import { settingsStore } from '$lib/stores/settingsStore';
@@ -23,18 +22,18 @@
     ticketAddonId?: string;
   };
 
+  // Use $state instead of writable stores for better reactivity with Svelte 5
   let clients = $state<Client[]>([]);
   let allEntries = $state<TimeEntry[]>([]);
   let clientHierarchy = $state<Client[]>([]);
-
-  let selectedEntries = writable<Record<string, boolean>>({});
-  let invoiceNumber = writable<string>('');
-  let isLoading = writable<boolean>(true);
-  let isGenerating = writable<boolean>(false);
-  let selectedClientId = writable<string>('');
-  let showAddonsForm = writable<boolean>(false);
-  let invoiceAddons = writable<NewInvoiceAddon[]>([]);
-  let timeFormat = writable<'minutes' | 'hours' | 'formatted'>('minutes');
+  let selectedEntries = $state<Record<string, boolean>>({});
+  let invoiceNumber = $state<string>('');
+  let isLoading = $state<boolean>(true);
+  let isGenerating = $state<boolean>(false);
+  let selectedClientId = $state<string | null>(null);
+  let showAddonsForm = $state<boolean>(false);
+  let invoiceAddons = $state<NewInvoiceAddon[]>([]);
+  let timeFormat = $state<'minutes' | 'hours' | 'formatted'>('minutes');
 
   const activeClients = clientStore.clientsWithUnbilledTime;
   const billingRates = settingsStore.billingRates;
@@ -50,23 +49,24 @@
       
       // If clientId was provided, initialize with that client
       if (clientId) {
-        selectedClientId.set(clientId);
+        selectedClientId = clientId;
         await loadClientEntries(clientId);
       }
       
-      isLoading.set(false);
+      isLoading = false;
     } catch (error) {
       console.error('Error loading data:', error);
-      isLoading.set(false);
+      isLoading = false;
     }
   });
 
-  selectedClientId.subscribe(async (id) => {
-    if (id) {
-      await loadClientEntries(id);
+  // Use effect to watch for changes to selectedClientId
+  $effect(() => {
+    if (selectedClientId) {
+      loadClientEntries(selectedClientId);
     } else {
       allEntries = [];
-      selectedEntries.set({});
+      selectedEntries = {};
       clientHierarchy = [];
     }
   });
@@ -119,21 +119,25 @@
       filteredEntries.forEach(entry => {
         initialSelection[entry.id] = true;
       });
-      selectedEntries.set(initialSelection);
+      selectedEntries = initialSelection;
     } catch (error) {
       console.error('Error loading client entries:', error);
       allEntries = [];
-      selectedEntries.set({});
+      selectedEntries = {};
     }
+  }
+
+  function handleClientChange(event: CustomEvent<string | null>) {
+    selectedClientId = event.detail;
   }
 
   function toggleAllEntries(event: Event) {
     const target = event.target as HTMLInputElement;
-    const newSelection = { ...$selectedEntries };
+    const newSelection = { ...selectedEntries };
     allEntries.forEach(entry => {
       newSelection[entry.id] = target.checked;
     });
-    selectedEntries.set(newSelection);
+    selectedEntries = newSelection;
   }
   
   function getClientName(clientId: string | null): string {
@@ -143,18 +147,19 @@
   }
   
   function formatTime(minutes: number): string {
-    if ($timeFormat === 'minutes') {
+    if (timeFormat === 'minutes') {
       return `${minutes} min`;
-    } else if ($timeFormat === 'formatted') {
+    } else if (timeFormat === 'formatted') {
       return minutesToFormatted(minutes);
     } else {
-      return `${minutes.toFixed(2)} hrs`;
+      return `${(minutes / 60).toFixed(2)} hrs`;
     }
   }
   
-  function getSelectedTotal() {
-    return allEntries
-      .filter(entry => $selectedEntries[entry.id])
+  // Computed totals using runes
+  const selectedTotal = $derived(
+    allEntries
+      .filter(entry => selectedEntries[entry.id])
       .reduce((total, entry) => {
         const amount = entry.billingRate?.rate 
           ? (entry.minutes / 60) * entry.billingRate.rate 
@@ -164,11 +169,11 @@
           minutes: total.minutes + entry.minutes,
           amount: total.amount + amount
         };
-      }, { minutes: 0, amount: 0 });
-  }
+      }, { minutes: 0, amount: 0 })
+  );
 
-  function getAddonTotals() {
-    return $invoiceAddons.reduce((total, addon) => {
+  const addonTotals = $derived(
+    invoiceAddons.reduce((total, addon) => {
       const addonTotal = addon.amount * addon.quantity;
       const addonCost = addon.cost * addon.quantity;
       return {
@@ -176,8 +181,10 @@
         cost: total.cost + addonCost,
         profit: total.profit + (addonTotal - addonCost)
       };
-    }, { amount: 0, cost: 0, profit: 0 });
-  }
+    }, { amount: 0, cost: 0, profit: 0 })
+  );
+
+  const grandTotal = $derived(selectedTotal.amount + addonTotals.amount);
   
   function addAddon() {
     const newAddon: NewInvoiceAddon = {
@@ -187,34 +194,68 @@
       quantity: 1,
       profit: 0
     };
-    invoiceAddons.update(addons => [...addons, newAddon]);
+    invoiceAddons = [...invoiceAddons, newAddon];
   }
   
   function removeAddon(index: number) {
-    invoiceAddons.update(addons => 
-      addons.filter((_, i) => i !== index)
+    invoiceAddons = invoiceAddons.filter((_, i) => i !== index);
+  }
+
+  function updateAddonDescription(index: number, description: string) {
+    invoiceAddons = invoiceAddons.map((addon, i) => 
+      i === index ? { ...addon, description } : addon
+    );
+  }
+
+  function updateAddonAmount(index: number, amount: number) {
+    invoiceAddons = invoiceAddons.map((addon, i) => 
+      i === index ? { 
+        ...addon, 
+        amount,
+        profit: (amount * addon.quantity) - (addon.cost * addon.quantity)
+      } : addon
+    );
+  }
+
+  function updateAddonCost(index: number, cost: number) {
+    invoiceAddons = invoiceAddons.map((addon, i) => 
+      i === index ? { 
+        ...addon, 
+        cost,
+        profit: (addon.amount * addon.quantity) - (cost * addon.quantity)
+      } : addon
+    );
+  }
+
+  function updateAddonQuantity(index: number, quantity: number) {
+    invoiceAddons = invoiceAddons.map((addon, i) => 
+      i === index ? { 
+        ...addon, 
+        quantity,
+        profit: (addon.amount * quantity) - (addon.cost * quantity)
+      } : addon
     );
   }
 
   async function generateInvoice() {
-    if (!$selectedClientId) {
+    if (!selectedClientId) {
       alert('Please select a client');
       return;
     }
     
-    const selectedTimeEntries = allEntries.filter(entry => $selectedEntries[entry.id]);
+    const selectedTimeEntries = allEntries.filter(entry => selectedEntries[entry.id]);
     
-    if (selectedTimeEntries.length === 0 && $invoiceAddons.length === 0) {
+    if (selectedTimeEntries.length === 0 && invoiceAddons.length === 0) {
       alert('Please select at least one time entry or add an addon');
       return;
     }
     
-    isGenerating.set(true);
+    isGenerating = true;
     
     try {
-      await api.generateInvoice($selectedClientId, selectedTimeEntries, {
-        invoiceNumber: $invoiceNumber || undefined,
-        addons: $invoiceAddons.map(addon => ({
+      await api.generateInvoice(selectedClientId, selectedTimeEntries, {
+        invoiceNumber: invoiceNumber || undefined,
+        addons: invoiceAddons.map(addon => ({
           description: addon.description,
           amount: addon.amount,
           cost: addon.cost,
@@ -227,8 +268,15 @@
       console.error('Failed to generate invoice:', error);
       alert('Failed to generate invoice. Please try again.');
     } finally {
-      isGenerating.set(false);
+      isGenerating = false;
     }
+  }
+
+  function resetForm() {
+    selectedClientId = null;
+    selectedEntries = {};
+    invoiceNumber = '';
+    invoiceAddons = [];
   }
 </script>
 
@@ -236,7 +284,7 @@
   <GlassCard className="p-4">
     <h2 class="text-xl font-semibold mb-2">Generate Invoice</h2>
     
-    {#if $isLoading}
+    {#if isLoading}
       <div class="flex items-center justify-center py-4">
         <div class="animate-pulse text-gray-400">Loading...</div>
       </div>
@@ -244,15 +292,11 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div class="form-field">
           <ClientSearch
-            selectedClientId={$selectedClientId}
-            on:change={(e) => {
-              selectedClientId.set(e.detail);
-            }}
+            selectedClientId={selectedClientId}
+            onchange={handleClientChange}
             label="Client"
             placeholder="Select a client to invoice"
             hint="Only showing clients with unbilled time. Time entries for selected client and sub-clients will be included."
-            showSearch={true}
-            fieldClassName="min-h-[120px]"
           />
         </div>
 
@@ -261,10 +305,11 @@
           <input
             type="text"
             id="invoiceNumber"
-            bind:value={$invoiceNumber}
+            value={invoiceNumber}
+            oninput={(e) => invoiceNumber = (e.target as HTMLInputElement).value}
             placeholder="Optional custom invoice number"
             class="form-input"
-            disabled={$isGenerating}
+            disabled={isGenerating}
           />
         </div>
         
@@ -275,8 +320,8 @@
               <input 
                 type="radio" 
                 id="format-minutes"
-                bind:group={$timeFormat} 
-                value="minutes" 
+                checked={timeFormat === "minutes"}
+                onclick={() => timeFormat = "minutes"}
                 class="form-radio mr-2"
               />
               Minutes
@@ -285,11 +330,21 @@
               <input 
                 type="radio" 
                 id="format-formatted"
-                bind:group={$timeFormat} 
-                value="formatted" 
+                checked={timeFormat === "formatted"}
+                onclick={() => timeFormat = "formatted"}
                 class="form-radio mr-2"
               />
               HH:MM
+            </label>
+            <label class="flex items-center" for="format-hours">
+              <input 
+                type="radio" 
+                id="format-hours"
+                checked={timeFormat === "hours"}
+                onclick={() => timeFormat = "hours"}
+                class="form-radio mr-2"
+              />
+              Hours
             </label>
           </div>
         </div>
@@ -297,7 +352,7 @@
     {/if}
   </GlassCard>
 
-  {#if $selectedClientId && allEntries.length > 0}
+  {#if selectedClientId && allEntries.length > 0}
     <GlassCard className="p-0 overflow-hidden">
       <div class="p-4 border-b border-white/10 flex justify-between items-center">
         <h3 class="text-lg font-medium">Time Entries</h3>
@@ -306,16 +361,16 @@
           <label class="flex items-center mr-4 text-sm">
             <input 
               type="checkbox" 
-              checked={Object.values($selectedEntries).every(Boolean)}
+              checked={Object.values(selectedEntries).every(Boolean) && Object.keys(selectedEntries).length > 0}
               class="form-checkbox mr-2"
               onchange={toggleAllEntries}
-              disabled={$isGenerating}
+              disabled={isGenerating}
             />
             Select All
           </label>
           
           <span class="text-sm">
-            {Object.values($selectedEntries).filter(Boolean).length} of {allEntries.length} selected
+            {Object.values(selectedEntries).filter(Boolean).length} of {allEntries.length} selected
           </span>
         </div>
       </div>
@@ -343,33 +398,38 @@
                 <td>
                   <input 
                     type="checkbox" 
-                    bind:checked={$selectedEntries[entry.id]}
+                    checked={selectedEntries[entry.id]}
+                    onchange={(e) => {
+                      selectedEntries = {
+                        ...selectedEntries,
+                        [entry.id]: (e.target as HTMLInputElement).checked
+                      };
+                    }}
                     class="form-checkbox" 
-                    disabled={$isGenerating}
+                    disabled={isGenerating}
                   />
                 </td>
                 <td>{entry.description}</td>
                 <td>{getClientName(entry.clientId)}</td>
-                <td>{entry.date.toLocaleDateString()}</td>
+                <td>{new Date(entry.date).toLocaleDateString()}</td>
                 <td class="right-aligned">{formatTime(entry.minutes)}</td>
                 <td class="right-aligned">
                   {formatCurrency(amount)}
                 </td>
               </tr>
             {/each}
-            {#if Object.values($selectedEntries).some(Boolean)}
-              {@const total = getSelectedTotal()}
+            {#if Object.values(selectedEntries).some(Boolean)}
               <tr class="data-table-footer">
                 <td colspan="4">Selected Total</td>
-                <td class="right-aligned">{formatTime(total.minutes)}</td>
-                <td class="right-aligned">{formatCurrency(total.amount)}</td>
+                <td class="right-aligned">{formatTime(selectedTotal.minutes)}</td>
+                <td class="right-aligned">{formatCurrency(selectedTotal.amount)}</td>
               </tr>
             {/if}
           </tbody>
         </table>
       </div>
     </GlassCard>
-  {:else if $selectedClientId}
+  {:else if selectedClientId}
     <GlassCard className="p-6">
       <div class="text-center py-6 text-gray-400">
         No unbilled time entries found for this client or its sub-clients.
@@ -384,13 +444,13 @@
         type="button" 
         class="btn btn-sm btn-secondary"
         onclick={addAddon}
-        disabled={$isGenerating}
+        disabled={isGenerating}
       >
         Add Item
       </button>
     </div>
     
-    {#if $invoiceAddons.length > 0}
+    {#if invoiceAddons.length > 0}
       <div class="overflow-x-auto">
         <table class="data-table">
           <thead class="data-table-header">
@@ -405,7 +465,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each $invoiceAddons as addon, index}
+            {#each invoiceAddons as addon, index}
               {@const total = addon.amount * addon.quantity}
               {@const cost = addon.cost * addon.quantity}
               {@const profit = total - cost}
@@ -414,9 +474,10 @@
                   <input 
                     type="text" 
                     class="form-input w-full" 
-                    bind:value={addon.description}
+                    value={addon.description}
+                    oninput={(e) => updateAddonDescription(index, (e.target as HTMLInputElement).value)}
                     placeholder="Description"
-                    disabled={$isGenerating}
+                    disabled={isGenerating}
                   />
                 </td>
                 <td class="right-aligned">
@@ -425,8 +486,9 @@
                     min="0"
                     step="0.01" 
                     class="form-input w-24 text-right" 
-                    bind:value={addon.amount}
-                    disabled={$isGenerating}
+                    value={addon.amount}
+                    oninput={(e) => updateAddonAmount(index, +(e.target as HTMLInputElement).value)}
+                    disabled={isGenerating}
                   />
                 </td>
                 <td class="right-aligned">
@@ -435,8 +497,9 @@
                     min="0"
                     step="0.01"
                     class="form-input w-24 text-right" 
-                    bind:value={addon.cost}
-                    disabled={$isGenerating}
+                    value={addon.cost}
+                    oninput={(e) => updateAddonCost(index, +(e.target as HTMLInputElement).value)}
+                    disabled={isGenerating}
                   />
                 </td>
                 <td class="right-aligned">
@@ -445,8 +508,9 @@
                     min="1"
                     step="1"
                     class="form-input w-20 text-right" 
-                    bind:value={addon.quantity}
-                    disabled={$isGenerating}
+                    value={addon.quantity}
+                    oninput={(e) => updateAddonQuantity(index, +(e.target as HTMLInputElement).value)}
+                    disabled={isGenerating}
                   />
                 </td>
                 <td class="right-aligned">{formatCurrency(total)}</td>
@@ -456,18 +520,18 @@
                     type="button" 
                     class="text-red-400 hover:text-red-300"
                     onclick={() => removeAddon(index)}
-                    disabled={$isGenerating}
+                    disabled={isGenerating}
                   >
                     Remove
                   </button>
                 </td>
               </tr>
             {/each}
-            {#if $invoiceAddons.length > 0}
+            {#if invoiceAddons.length > 0}
               <tr class="data-table-footer">
                 <td colspan="4">Addons Total</td>
-                <td class="right-aligned">{formatCurrency(getAddonTotals().amount)}</td>
-                <td class="right-aligned">{formatCurrency(getAddonTotals().profit)}</td>
+                <td class="right-aligned">{formatCurrency(addonTotals.amount)}</td>
+                <td class="right-aligned">{formatCurrency(addonTotals.profit)}</td>
                 <td></td>
               </tr>
             {/if}
@@ -481,12 +545,8 @@
     {/if}
   </GlassCard>
 
-  {#if $selectedClientId}
-    {#if Object.values($selectedEntries).some(Boolean) || $invoiceAddons.length > 0}
-      {@const timeTotal = getSelectedTotal()}
-      {@const addonTotals = getAddonTotals()}
-      {@const grandTotal = timeTotal.amount + addonTotals.amount}
-      
+  {#if selectedClientId}
+    {#if Object.values(selectedEntries).some(Boolean) || invoiceAddons.length > 0}
       <GlassCard className="p-6">
         <div class="flex flex-col md:flex-row justify-between items-center">
           <div class="text-lg font-medium mb-4 md:mb-0">
@@ -497,13 +557,8 @@
             <button 
               type="button" 
               class="btn btn-secondary"
-              disabled={$isGenerating}
-              onclick={() => {
-                selectedClientId.set('');
-                selectedEntries.set({});
-                invoiceNumber.set('');
-                invoiceAddons.set([]);
-              }}
+              disabled={isGenerating}
+              onclick={resetForm}
             >
               Cancel
             </button>
@@ -511,9 +566,9 @@
               type="button" 
               class="btn btn-primary" 
               onclick={generateInvoice}
-              disabled={$isGenerating || (timeTotal.minutes === 0 && addonTotals.amount === 0)}
+              disabled={isGenerating || (selectedTotal.minutes === 0 && addonTotals.amount === 0)}
             >
-              {$isGenerating ? 'Generating...' : 'Generate Invoice'}
+              {isGenerating ? 'Generating...' : 'Generate Invoice'}
             </button>
           </div>
         </div>

@@ -1,43 +1,33 @@
+/* client-search.css */
 @layer components {
-  .client-search-container {
-    position: relative;
+  /* Base styling for client select */
+  .client-select-container {
+    width: 100%;
   }
   
-  .client-search-dropdown {
-    position: absolute;
-    z-index: 100;
-    width: 100%;
-    margin-top: 0.25rem;
-    padding-top: 0.25rem;
-    padding-bottom: 0.25rem;
-    background-color: rgba(254, 255, 255, 0.696);
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 0.5rem;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    max-height: 15rem;
-    overflow-y: auto;
+  /* Client type legend styling */
+  .client-type-legend {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--color-gray-400);
   }
   
-  .client-search-option {
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-    text-align: left;
+  .client-type-legend-item {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-  }
-
-  .client-search-option:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .client-search-option:focus {
-    background-color: rgba(255, 255, 255, 0.05);
-    outline: none;
+    gap: 0.25rem;
   }
   
-  .client-search-option.selected {
-    background-color: rgba(255, 255, 255, 0.1);
+  /* Ensure proper spacing for the select dropdown */
+  select.form-select option {
+    padding: 0.5rem 0.75rem;
+  }
+  
+  /* Make sure hint text is styled appropriately */
+  .form-hint {
+    font-size: 0.75rem;
+    color: var(--color-gray-400);
+    margin-top: 0.25rem;
   }
 }

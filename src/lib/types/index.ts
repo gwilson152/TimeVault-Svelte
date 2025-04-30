@@ -113,6 +113,7 @@ export interface TimeEntry {
   billingRate?: BillingRate;
   userId?: string | null; // Add the user ID who created this entry
   user?: User | null; // Add the user relation
+  billedRate?: number; // Store the effective rate at time of invoicing
   createdAt: Date;
   updatedAt: Date;
 }

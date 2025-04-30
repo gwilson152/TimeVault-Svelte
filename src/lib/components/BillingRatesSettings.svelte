@@ -183,14 +183,14 @@
   onclose={cancelForm}
 >
   <div class="p-6">
-    <form @submit.preventDefault={editingRate ? handleUpdateRate : handleCreateRate} class="space-y-4">
+    <form onsubmit={(e) => editingRate ? handleUpdateRate(e) : handleCreateRate(e)} class="space-y-4">
       <div class="form-field">
         <label for="rateName" class="form-label">Name</label>
         <input
           id="rateName"
           type="text"
           bind:value={currentName}
-          on:input={(e) => updateField('name', e.currentTarget.value)}
+          oninput={(e) => updateField('name', e.currentTarget.value)}
           class="form-input"
           required
         />
@@ -204,7 +204,7 @@
           step="0.01"
           min="0"
           bind:value={currentRate}
-          on:input={(e) => updateField('rate', parseFloat(e.currentTarget.value))}
+          oninput={(e) => updateField('rate', parseFloat(e.currentTarget.value))}
           class="form-input"
           required
         />
@@ -215,7 +215,7 @@
         <textarea
           id="rateDescription"
           bind:value={currentDescription}
-          on:input={(e) => updateField('description', e.currentTarget.value)}
+          oninput={(e) => updateField('description', e.currentTarget.value)}
           class="form-textarea"
           rows="2"
         ></textarea>
@@ -226,7 +226,7 @@
           <input
             type="checkbox"
             bind:checked={currentIsDefault}
-            on:change={(e) => updateField('isDefault', e.currentTarget.checked)}
+            onchange={(e) => updateField('isDefault', e.currentTarget.checked)}
             class="form-checkbox"
           />
           <span class="ml-2">Default Rate</span>

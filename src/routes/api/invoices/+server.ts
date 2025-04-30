@@ -1,5 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { prisma } from '$lib/server/db';
+import { calculateEffectiveRate } from '$lib/utils/invoiceUtils';
 import type { TimeEntry, InvoiceAddon, Client, BillingRate } from '$lib/types';
 
 interface TimeEntryWithDetails extends Omit<TimeEntry, 'client' | 'billingRate'> {
@@ -27,6 +28,13 @@ interface InvoiceTotals {
   amount: number;
   cost: number;
   profit: number;
+}
+
+interface InvoiceRequest {
+  clientId: string;
+  entries: TimeEntry[];
+  invoiceNumber?: string;
+  addons?: InvoiceAddon[];
 }
 
 export async function GET({ url }) {
@@ -72,18 +80,75 @@ export async function GET({ url }) {
 }
 
 export async function POST({ request }) {
-  const { clientId, entries, invoiceNumber, addons = [] } = await request.json();
+  const { clientId, entries, invoiceNumber, addons = [] } = await request.json() as InvoiceRequest;
 
   if (!clientId || !entries?.length) {
     throw error(400, 'Client ID and at least one time entry are required');
   }
   
   return await prisma.$transaction(async (tx) => {
+    // Get all clients for billing rate override calculations
+    const allClients = await tx.client.findMany({
+      include: {
+        billingRateOverrides: true,
+        children: {
+          include: {
+            billingRateOverrides: true,
+            children: true
+          }
+        }
+      }
+    });
+
+    // Helper function to convert Prisma client to Client type
+    function convertToClient(prismaClient: any): Client {
+      return {
+        ...prismaClient,
+        type: prismaClient.type as 'business' | 'container' | 'individual',
+        children: prismaClient.children?.map(convertToClient) || []
+      };
+    }
+
+    const typedClients = allClients.map(convertToClient);
+
+    // Calculate effective rates for each entry
+    const entriesWithRates = await Promise.all(entries.map(async (entry: TimeEntry) => {
+      const billingRate = entry.billingRateId ? 
+        await tx.billingRate.findUnique({ 
+          where: { id: entry.billingRateId },
+          select: {
+            id: true,
+            name: true,
+            rate: true,
+            cost: true,
+            description: true,
+            isDefault: true,
+            createdAt: true,
+            updatedAt: true
+          }
+        }) 
+        : null;
+
+      if (!billingRate) return entry;
+
+      // Calculate effective rate considering client overrides
+      const effectiveRate = calculateEffectiveRate(
+        { ...billingRate, description: billingRate.description || undefined } as BillingRate,
+        typedClients,
+        entry.clientId
+      );
+
+      return {
+        ...entry,
+        billedRate: effectiveRate
+      };
+    }));
+
     // Calculate totals for time entries
-    const timeEntriesTotal = entries.reduce((acc: InvoiceTotals, entry: TimeEntry) => {
+    const timeEntriesTotal = entriesWithRates.reduce((acc: InvoiceTotals, entry: TimeEntry) => {
       // Convert duration from minutes to hours for rate calculations
       const hours = entry.minutes / 60;
-      const amount = entry.billingRate?.rate ? entry.billingRate.rate * hours : 0;
+      const amount = entry.billedRate ? entry.billedRate * hours : 0;
       const cost = entry.billingRate?.cost ? entry.billingRate.cost * hours : 0;
       const profit = amount - cost;
 
@@ -117,7 +182,7 @@ export async function POST({ request }) {
         totalCost: timeEntriesTotal.cost + addonTotals.cost,
         totalProfit: timeEntriesTotal.profit + addonTotals.profit,
         entries: {
-          connect: entries.map((entry: TimeEntry) => ({ id: entry.id }))
+          connect: entriesWithRates.map((entry) => ({ id: entry.id }))
         },
         addons: {
           create: addons.map((addon: InvoiceAddon) => ({
@@ -125,37 +190,51 @@ export async function POST({ request }) {
             amount: addon.amount,
             cost: addon.cost,
             quantity: addon.quantity,
-            profit: (addon.amount - addon.cost) * addon.quantity,
+            profit: (addon.amount * addon.quantity) - (addon.cost * addon.quantity),
             ticketAddonId: addon.ticketAddonId
           }))
         }
       },
       include: {
-        entries: true,
+        client: true,
+        entries: {
+          include: {
+            billingRate: true
+          }
+        },
         addons: true
       }
     });
 
-    // Mark entries as billed
+    // Lock time entries and store their billing rates
     await tx.timeEntry.updateMany({
       where: {
         id: {
-          in: entries.map((entry: TimeEntry) => entry.id)
+          in: entriesWithRates.map((entry) => entry.id)
         }
       },
       data: {
         billed: true,
-        locked: true, // Lock entries when they're included in an invoice
+        locked: true,
         invoiceId: invoice.id
       }
     });
 
+    // Update each entry individually to store the billed rate
+    await Promise.all(entriesWithRates.map(entry => 
+      tx.timeEntry.update({
+        where: { id: entry.id },
+        data: { billedRate: entry.billedRate }
+      })
+    ));
+
     // If any addons are from tickets, mark them as billed
-    if (addons.some((a: InvoiceAddon) => a.ticketAddonId)) {
+    const ticketAddons = addons.filter((addon: InvoiceAddon) => addon.ticketAddonId);
+    if (ticketAddons.length > 0) {
       await tx.ticketAddon.updateMany({
         where: {
           id: {
-            in: addons.filter((a: InvoiceAddon) => a.ticketAddonId).map((a: InvoiceAddon) => a.ticketAddonId!)
+            in: ticketAddons.map(addon => addon.ticketAddonId!),
           }
         },
         data: {

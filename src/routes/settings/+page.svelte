@@ -38,7 +38,7 @@
       <div class="flex gap-4 border-b border-white/10">
         <button
           class="px-4 py-2 font-medium transition-colors relative {activeTab === 'tickets' ? 'text-blue-500' : 'text-gray-400 hover:text-white'}"
-          on:click={() => activeTab = 'tickets'}
+          onclick={() => activeTab = 'tickets'}
         >
           Ticket Settings
           {#if activeTab === 'tickets'}
@@ -47,7 +47,7 @@
         </button>
         <button
           class="px-4 py-2 font-medium transition-colors relative {activeTab === 'billing' ? 'text-blue-500' : 'text-gray-400 hover:text-white'}"
-          on:click={() => activeTab = 'billing'}
+          onclick={() => activeTab = 'billing'}
         >
           Billing Settings
           {#if activeTab === 'billing'}

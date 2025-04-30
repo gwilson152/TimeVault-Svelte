@@ -509,7 +509,7 @@
           id: props.editEntry?.id || '',
           billed: false,
           invoiceId: null,
-          minutes: $form.minutes || 0, // Ensure minutes is always a number
+          minutes: $form.minutes || 0,
           client,
           billingRate,
           createdAt: new Date(),
@@ -518,7 +518,14 @@
         <div class="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-white/10">
           <div>
             <div class="text-sm text-gray-400">Amount</div>
-            <div class="font-medium">{formatCurrency(result.amount)}</div>
+            <div class="font-medium">
+              {#if props.editEntry?.billedRate}
+                {formatCurrency(props.editEntry.billedRate * ($form.minutes / 60))}
+                <div class="text-xs text-blue-400">Using locked rate: {formatCurrency(props.editEntry.billedRate)}/hr</div>
+              {:else}
+                {formatCurrency(result.amount)}
+              {/if}
+            </div>
           </div>
           <div>
             <div class="text-sm text-gray-400">Cost</div>
@@ -526,7 +533,13 @@
           </div>
           <div>
             <div class="text-sm text-gray-400">Profit</div>
-            <div class="font-medium">{formatCurrency(result.profit)}</div>
+            <div class="font-medium">
+              {#if props.editEntry?.billedRate}
+                {formatCurrency((props.editEntry.billedRate * ($form.minutes / 60)) - result.cost)}
+              {:else}
+                {formatCurrency(result.profit)}
+              {/if}
+            </div>
           </div>
         </div>
       {/if}

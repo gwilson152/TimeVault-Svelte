@@ -8,7 +8,7 @@ interface ApiResponse<T> {
   status?: number;
 }
 
-// Generic API calls
+// Generic API calls 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -199,6 +199,14 @@ export async function getInvoices(filters?: InvoiceFilters): Promise<Invoice[]> 
   }));
 }
 
+export async function getInvoice(id: string): Promise<Invoice> {
+  const rawInvoice = await get<RawInvoice>(`/invoices/${id}`);
+  return {
+    ...rawInvoice,
+    date: new Date(rawInvoice.date)
+  };
+}
+
 export async function updateInvoice(id: string, invoice: Partial<Invoice>): Promise<Invoice> {
   // Convert Date objects to ISO strings before sending to API
   const data: Record<string, any> = { ...invoice };
@@ -229,6 +237,10 @@ export async function updateInvoice(id: string, invoice: Partial<Invoice>): Prom
     ...rawInvoice,
     date: new Date(rawInvoice.date)
   };
+}
+
+export async function deleteInvoice(id: string): Promise<void> {
+  return del(`/invoices/${id}`);
 }
 
 export async function generateInvoice(

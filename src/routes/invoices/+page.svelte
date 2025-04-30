@@ -278,7 +278,7 @@
         <button
           type="button"
           class="btn btn-secondary flex items-center gap-2"
-          on:click={loadInvoices}
+          onclick={loadInvoices}
         >
           <Icon src={ArrowPath} class="w-4 h-4" />
           <span>Refresh</span>
@@ -403,7 +403,7 @@
       <button 
         type="button" 
         class="btn btn-secondary"
-        on:click={resetFilters}
+        onclick={resetFilters}
         disabled={!isFiltered}
       >
         Reset Filters
@@ -432,7 +432,7 @@
     <svelte:fragment slot="footer">
       {#if filteredInvoices.length === 0 && isFiltered}
         <div class="flex justify-center">
-          <button class="btn btn-secondary" on:click={resetFilters}>Reset Filters</button>
+          <button class="btn btn-secondary" onclick={resetFilters}>Reset Filters</button>
         </div>
       {:else if filteredInvoices.length === 0 && !isFiltered}
         <div class="flex justify-center">
