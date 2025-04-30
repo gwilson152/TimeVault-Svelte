@@ -245,8 +245,8 @@
 <Modal
   open={$showForm}
   title={$editingClient ? 'Edit Client' : 'New Client'}
-  width="max-w-2xl"
-  on:close={handleCancel}
+  size="lg"
+  onclose={handleCancel}
 >
   <div class="p-6">
     <ClientForm

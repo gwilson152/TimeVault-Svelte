@@ -363,11 +363,11 @@
 <Modal
   open={showUserModal}
   title={isEditMode ? 'Edit User' : 'Create User'}
-  hasFooter={true}
-  on:close={() => showUserModal = false}
+  size="lg"
+  onclose={() => showUserModal = false}
 >
   <div class="p-6">
-    <form class="form-group" on:submit|preventDefault={handleSaveUser}>
+    <form class="space-y-4" onsubmit|preventDefault={handleSaveUser}>
       <!-- Name Field -->
       <div class="form-field">
         <label for="name" class="form-label">Name</label>
@@ -403,7 +403,7 @@
       <!-- Password Field -->
       <div class="form-field">
         <label for="password" class="form-label">
-          Password {isEditMode ? '(Leave blank to keep current)' : ''}
+          Password {isEditMode ? '(leave blank to keep current)' : ''}
         </label>
         <input 
           id="password"
@@ -411,7 +411,8 @@
           class="form-input"
           class:error={formErrors.password}
           bind:value={formData.password}
-          placeholder={isEditMode ? "Leave blank to keep current password" : "Password"}
+          placeholder="Enter password"
+          required={!isEditMode}
         />
         {#if formErrors.password}
           <span class="form-error">{formErrors.password}</span>
@@ -421,26 +422,26 @@
       <!-- Role Field -->
       <div class="form-field">
         <label for="role" class="form-label">Role</label>
-        <select 
+        <select
           id="role"
           class="form-select"
           class:error={formErrors.role}
           bind:value={formData.role}
         >
-          {#each roles as role}
-            <option value={role.value}>{role.label}</option>
-          {/each}
+          <option value="ADMIN">Admin</option>
+          <option value="STAFF">Staff</option>
+          <option value="CLIENT_USER">Client User</option>
         </select>
         {#if formErrors.role}
           <span class="form-error">{formErrors.role}</span>
         {/if}
       </div>
       
-      <!-- Client Field (only for client roles) -->
-      {#if clientRoles.includes(formData.role)}
+      <!-- Client Field (only for CLIENT_USER role) -->
+      {#if formData.role === 'CLIENT_USER'}
         <div class="form-field">
           <label for="clientId" class="form-label">Client</label>
-          <select 
+          <select
             id="clientId"
             class="form-select"
             class:error={formErrors.clientId}
@@ -457,7 +458,7 @@
         </div>
       {/if}
       
-      <!-- Active Field -->
+      <!-- Active Toggle (only when editing) -->
       {#if isEditMode}
         <div class="form-field">
           <label class="flex items-center gap-2">
@@ -468,26 +469,26 @@
             />
             <span>User is active</span>
           </label>
-          <span class="form-hint">Inactive users cannot log in</span>
+          <span class="text-sm text-gray-600">Inactive users cannot log in</span>
         </div>
       {/if}
     </form>
   </div>
-  
-  <svelte:fragment slot="footer">
-    <div class="flex justify-end gap-3">
+
+  {#snippet footer()}
+    <div slot="footer" class="flex justify-end gap-3">
       <button 
         class="btn btn-secondary"
-        on:click={() => showUserModal = false}
+        onclick={() => showUserModal = false}
       >
         Cancel
       </button>
       <button 
-        class="form-submit"
-        on:click={handleSaveUser}
+        class="btn btn-primary"
+        onclick={handleSaveUser}
       >
         {isEditMode ? 'Update User' : 'Create User'}
       </button>
     </div>
-  </svelte:fragment>
+  {/snippet}
 </Modal>

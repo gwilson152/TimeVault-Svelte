@@ -25,6 +25,7 @@
     Ticket,
     Check
   } from '@steeze-ui/heroicons';
+  import Modal from '$lib/components/Modal.svelte';
   
   const { onClose, onComplete } = $props<{
     onClose?: () => void;
@@ -44,6 +45,7 @@
   let isSubmitting = $state(false);
   let errorMessage = $state<string | null>(null);
   let successCount = $state(0);
+  let confirmModal = $state(false);
 
   // Step 1: Client selection
   let selectedClientId = $state<string | null>(null);
@@ -222,8 +224,8 @@
       id,
       date: new Date(date),
       description: '',
-      duration: '01:00', // Default to 1 hour
-      minutes: 60, // Default to 1 hour in minutes
+      duration: '60', // Default to 60 minutes instead of '01:00'
+      minutes: 60,
       ticketId: null,
       clientId: selectedClientId // Use global client ID if set
     };
@@ -259,20 +261,54 @@
   }
   
   function updateEntryDuration(entry: BulkEntry, value: string): void {
+    // Store the original value as entered by the user without formatting
+    entry.duration = value;
+    
+    // Try parse as HH:MM format first
     const parsedMinutes = formattedToMinutes(value);
     
     if (parsedMinutes !== null) {
+      // Valid HH:MM format
       entry.minutes = parsedMinutes;
-      entry.duration = value;
     } else if (!isNaN(parseInt(value, 10))) {
-      // If it's a plain number, assume minutes
+      // If it's a plain number, assume minutes and keep raw value
       const minutes = parseInt(value, 10);
       entry.minutes = minutes;
-      entry.duration = minutesToFormatted(minutes);
+      // Don't format the duration, keep it as entered
+      entry.duration = value;
+    } else if (value.includes('.') || value.includes(',')) {
+      // Handle decimal hours (e.g., 1.5 hours = 90 minutes)
+      const hourValue = parseFloat(value.replace(',', '.'));
+      if (!isNaN(hourValue)) {
+        const minutes = Math.round(hourValue * 60);
+        entry.minutes = minutes;
+        // Show decimal hours as minutes
+        entry.duration = minutes.toString();
+      }
     }
     
     // Force reactivity update
     entries = [...entries];
+  }
+  
+  // Get formatted time display for label
+  function getTimeDisplayLabel(minutes: number): string {
+    if (minutes <= 0) {
+      return '';
+    }
+    
+    if (minutes < 60) {
+      return `(${minutes} minutes)`;
+    } else {
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      
+      if (remainingMinutes === 0) {
+        return `(${hours} ${hours === 1 ? 'hour' : 'hours'})`;
+      } else {
+        return `(${hours}h ${remainingMinutes}m)`;
+      }
+    }
   }
   
   function getAvailableTickets(entry: BulkEntry) {
@@ -284,7 +320,7 @@
     if (currentStep < STEPS.REVIEW) {
       currentStep++;
     } else {
-      submitEntries();
+      confirmModal = true;
     }
   }
   
@@ -307,7 +343,7 @@
     }
   }
   
-  async function submitEntries(): Promise<void> {
+  async function handleConfirm(): Promise<void> {
     if (!hasValidEntries || isSubmitting) return;
     
     try {
@@ -349,6 +385,7 @@
         : 'Failed to submit time entries';
     } finally {
       isSubmitting = false;
+      confirmModal = false;
     }
   }
   
@@ -396,297 +433,335 @@
     </div>
   {:else}
     <!-- Step Content -->
-    <div class="min-h-[calc(100vh-16rem)] md:min-h-[500px] max-h-[calc(100vh-8rem)] md:max-h-[700px] overflow-y-auto px-1">
-      {#if currentStep === STEPS.CLIENT}
-        <!-- Step 1: Client Selection -->
-        <div class="space-y-6 container-glass rounded-lg p-6">
-          <div class="form-field">
-            <label for="clientId" class="form-label flex items-center gap-2">
-              <Icon src={UserCircle} class="w-5 h-5 text-blue-500" />
-              Client
-            </label>
-            <select
-              id="clientId"
-              class="form-select"
-              bind:value={selectedClientId}
-            >
-              <option value="">Select a client</option>
-              {#each $clientStore as client}
-                <option value={client.id}>{client.name}</option>
-              {/each}
-            </select>
+    <div class="space-y-4">
+      {#if confirmModal}
+        <Modal
+          open={true}
+          title="Confirm Time Entries"
+          size="lg"
+          onclose={() => confirmModal = false}
+        >
+          <div class="p-6">
+            <p class="mb-4 text-gray-900">
+              Are you sure you want to create {entries.length} time {entries.length === 1 ? 'entry' : 'entries'}?
+            </p>
+            <p class="text-sm text-gray-600">
+              Total time: {minutesToFormatted(totalMinutes)}
+              {#if totalAmount > 0}
+                <br />
+                Total billable amount: {formatCurrency(totalAmount)}
+              {/if}
+            </p>
           </div>
-          
-          <div class="form-field">
-            <label class="form-label flex items-center gap-2">
-              <Icon src={CurrencyDollar} class="w-5 h-5 text-green-500" />
-              Billable
-            </label>
-            <div class="flex items-center gap-2">
-              <input
-                id="billable"
-                type="checkbox"
-                class="form-checkbox"
-                bind:checked={billable}
-              />
-              <span class="form-hint">Time is billable</span>
-            </div>
+
+          <div slot="footer" class="flex justify-end gap-3">
+            <button class="btn btn-secondary" onclick={() => confirmModal = false}>Cancel</button>
+            <button class="btn btn-primary" onclick={handleConfirm}>Create Entries</button>
           </div>
-          
-          {#if billable}
+        </Modal>
+      {/if}
+
+      <div class="rounded-lg bg-amber-100 p-3 text-amber-800">
+        <p class="text-sm">
+          Create multiple time entries at once. Fill in the common details below, then add specific entries.
+        </p>
+      </div>
+
+      <div class="min-h-[calc(100vh-16rem)] md:min-h-[500px] max-h-[calc(100vh-8rem)] md:max-h-[700px] overflow-y-auto px-1">
+        {#if currentStep === STEPS.CLIENT}
+          <!-- Step 1: Client Selection -->
+          <div class="space-y-6 container-glass rounded-lg p-6">
             <div class="form-field">
-              <label for="billingRateId" class="form-label flex items-center gap-2">
-                <Icon src={CurrencyDollar} class="w-5 h-5 text-green-500" />
-                Billing Rate
+              <label for="clientId" class="form-label flex items-center gap-2">
+                <Icon src={UserCircle} class="w-5 h-5 text-blue-500" />
+                Client
               </label>
               <select
-                id="billingRateId"
+                id="clientId"
                 class="form-select"
-                bind:value={selectedBillingRateId}
-                required={billable}
+                bind:value={selectedClientId}
               >
-                <option value="">Select a billing rate</option>
-                {#each availableBillingRates as rate}
-                  <option value={rate.id}>{rate.name} ({formatCurrency(rate.rate)}/hr)</option>
+                <option value="">Select a client</option>
+                {#each $clientStore as client}
+                  <option value={client.id}>{client.name}</option>
                 {/each}
               </select>
-              
-              {#if selectedClient && selectedBillingRateId && clientRateOverride}
-                <span class="form-hint text-blue-400">
-                  This client has a custom rate override: 
-                  {clientRateOverride.overrideType === 'percentage' 
-                    ? `${clientRateOverride.value}% of standard rate` 
-                    : `${formatCurrency(clientRateOverride.value)} per hour`}
-                </span>
-              {/if}
-              
-              {#if selectedRate && effectiveRate !== selectedRate.rate}
-                <div class="mt-2 p-3 bg-blue-500 bg-opacity-10 text-blue-400 rounded-lg border border-blue-500 border-opacity-20">
-                  <p class="font-medium">Custom Rate Applied</p>
-                  <p class="text-sm">
-                    Standard rate: {formatCurrency(selectedRate.rate)}/hr →
-                    Client rate: {formatCurrency(effectiveRate)}/hr
-                  </p>
-                </div>
-              {/if}
-            </div>
-          {/if}
-        </div>
-      {:else if currentStep === STEPS.DATES}
-        <!-- Step 2: Date Range -->
-        <div class="space-y-6 container-glass rounded-lg p-6">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="form-field">
-              <label for="startDate" class="form-label flex items-center gap-2">
-                <Icon src={CalendarDays} class="w-5 h-5 text-blue-500" />
-                Start Date
-              </label>
-              <input
-                id="startDate"
-                type="date"
-                class="form-input"
-                bind:value={dateRange.startDate}
-                max={dateRange.endDate ? dateRange.endDate.toISOString().split('T')[0] : undefined}
-              />
             </div>
             
             <div class="form-field">
-              <label for="endDate" class="form-label flex items-center gap-2">
-                <Icon src={CalendarDays} class="w-5 h-5 text-blue-500" />
-                End Date
+              <label class="form-label flex items-center gap-2">
+                <Icon src={CurrencyDollar} class="w-5 h-5 text-green-500" />
+                Billable
               </label>
-              <input
-                id="endDate"
-                type="date"
-                class="form-input"
-                bind:value={dateRange.endDate}
-                min={dateRange.startDate ? dateRange.startDate.toISOString().split('T')[0] : undefined}
-              />
-            </div>
-          </div>
-          
-          {#if availableDates.length > 0}
-            <div class="p-4 bg-blue-500 bg-opacity-10 rounded-lg border border-blue-500 border-opacity-20">
-              <h3 class="text-sm font-medium text-blue-400 mb-2">Date Range Preview</h3>
-              <div class="flex flex-wrap gap-2">
-                {#each availableDates as date}
-                  <div class="bg-blue-500 bg-opacity-20 text-blue-300 px-3 py-1 rounded-full text-xs">
-                    {formatDate(date)}
-                  </div>
-                {/each}
+              <div class="flex items-center gap-2">
+                <input
+                  id="billable"
+                  type="checkbox"
+                  class="form-checkbox"
+                  bind:checked={billable}
+                />
+                <span class="form-hint">Time is billable</span>
               </div>
-              <p class="text-sm text-blue-400 mt-2">
-                {availableDates.length} {availableDates.length === 1 ? 'day' : 'days'} selected
-              </p>
             </div>
-          {/if}
-        </div>
-      {:else if currentStep === STEPS.ENTRIES}
-        <!-- Step 3: Time Entries -->
-        <div class="space-y-4 container-glass rounded-lg p-6">
-          {#each entries as entry, i (entry.id)}
-            <div class="p-4 bg-gray-800 bg-opacity-20 rounded-lg border border-gray-700 border-opacity-30">
-              <div class="flex justify-between items-start mb-3">
-                <h3 class="font-medium flex items-center gap-2">
-                  <Icon src={CalendarDays} class="w-4 h-4" />
-                  {formatDate(entry.date)}
-                </h3>
+            
+            {#if billable}
+              <div class="form-field">
+                <label for="billingRateId" class="form-label flex items-center gap-2">
+                  <Icon src={CurrencyDollar} class="w-5 h-5 text-green-500" />
+                  Billing Rate
+                </label>
+                <select
+                  id="billingRateId"
+                  class="form-select"
+                  bind:value={selectedBillingRateId}
+                  required={billable}
+                >
+                  <option value="">Select a billing rate</option>
+                  {#each availableBillingRates as rate}
+                    <option value={rate.id}>{rate.name} ({formatCurrency(rate.rate)}/hr)</option>
+                  {/each}
+                </select>
                 
-                {#if entries.filter(e => e.date.toDateString() === entry.date.toDateString()).length > 1}
-                  <button 
-                    class="text-red-400 hover:text-red-300"
-                    title="Remove Entry"
-                    onclick={() => removeEntry(entry.id)}
-                  >
-                    <Icon src={MinusCircle} class="w-5 h-5" />
-                  </button>
+                {#if selectedClient && selectedBillingRateId && clientRateOverride}
+                  <span class="form-hint text-blue-400">
+                    This client has a custom rate override: 
+                    {clientRateOverride.overrideType === 'percentage' 
+                      ? `${clientRateOverride.value}% of standard rate` 
+                      : `${formatCurrency(clientRateOverride.value)} per hour`}
+                  </span>
+                {/if}
+                
+                {#if selectedRate && effectiveRate !== selectedRate.rate}
+                  <div class="mt-2 p-3 bg-blue-500 bg-opacity-10 text-blue-400 rounded-lg border border-blue-500 border-opacity-20">
+                    <p class="font-medium">Custom Rate Applied</p>
+                    <p class="text-sm">
+                      Standard rate: {formatCurrency(selectedRate.rate)}/hr →
+                      Client rate: {formatCurrency(effectiveRate)}/hr
+                    </p>
+                  </div>
                 {/if}
               </div>
+            {/if}
+          </div>
+        {:else if currentStep === STEPS.DATES}
+          <!-- Step 2: Date Range -->
+          <div class="space-y-6 container-glass rounded-lg p-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="form-field">
+                <label for="startDate" class="form-label flex items-center gap-2">
+                  <Icon src={CalendarDays} class="w-5 h-5 text-blue-500" />
+                  Start Date
+                </label>
+                <input
+                  id="startDate"
+                  type="date"
+                  class="form-input"
+                  bind:value={dateRange.startDate}
+                  max={dateRange.endDate ? dateRange.endDate.toISOString().split('T')[0] : undefined}
+                />
+              </div>
               
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div class="col-span-1 md:col-span-2">
-                  <label for={`description-${entry.id}`} class="text-sm text-gray-400">Description</label>
-                  <input 
-                    id={`description-${entry.id}`}
-                    class="form-input w-full" 
-                    placeholder="What did you work on?"
-                    bind:value={entry.description}
-                  />
+              <div class="form-field">
+                <label for="endDate" class="form-label flex items-center gap-2">
+                  <Icon src={CalendarDays} class="w-5 h-5 text-blue-500" />
+                  End Date
+                </label>
+                <input
+                  id="endDate"
+                  type="date"
+                  class="form-input"
+                  bind:value={dateRange.endDate}
+                  min={dateRange.startDate ? dateRange.startDate.toISOString().split('T')[0] : undefined}
+                />
+              </div>
+            </div>
+            
+            {#if availableDates.length > 0}
+              <div class="p-4 bg-blue-500 bg-opacity-10 rounded-lg border border-blue-500 border-opacity-20">
+                <h3 class="text-sm font-medium text-blue-400 mb-2">Date Range Preview</h3>
+                <div class="flex flex-wrap gap-2">
+                  {#each availableDates as date}
+                    <div class="bg-blue-500 bg-opacity-20 text-blue-300 px-3 py-1 rounded-full text-xs">
+                      {formatDate(date)}
+                    </div>
+                  {/each}
                 </div>
-                
-                <div>
-                  <label for={`duration-${entry.id}`} class="text-sm text-gray-400">Duration</label>
-                  <input 
-                    id={`duration-${entry.id}`}
-                    class="form-input w-full" 
-                    placeholder="HH:MM"
-                    value={entry.duration}
-                    oninput={(e) => updateEntryDuration(entry, e.currentTarget.value)}
-                  />
-                  <span class="text-xs text-gray-500">Format: HH:MM or minutes</span>
-                </div>
-                
-                <div>
-                  <label for={`client-${entry.id}`} class="text-sm text-gray-400">Client</label>
-                  <select
-                    id={`client-${entry.id}`}
-                    class="form-select w-full"
-                    bind:value={entry.clientId}
-                  >
-                    <option value="">Select a client</option>
-                    {#each $clientStore as client}
-                      <option value={client.id}>{client.name}</option>
-                    {/each}
-                  </select>
-                </div>
-                
-                {#if getAvailableTickets(entry).length > 0}
-                  <div class="col-span-full">
-                    <label for={`ticket-${entry.id}`} class="text-sm text-gray-400">Ticket (Optional)</label>
-                    <select
-                      id={`ticket-${entry.id}`}
-                      class="form-select w-full"
-                      bind:value={entry.ticketId}
+                <p class="text-sm text-blue-400 mt-2">
+                  {availableDates.length} {availableDates.length === 1 ? 'day' : 'days'} selected
+                </p>
+              </div>
+            {/if}
+          </div>
+        {:else if currentStep === STEPS.ENTRIES}
+          <!-- Step 3: Time Entries -->
+          <div class="space-y-4 container-glass rounded-lg p-6">
+            {#each entries as entry, i (entry.id)}
+              <div class="p-4 bg-gray-800 bg-opacity-20 rounded-lg border border-gray-700 border-opacity-30">
+                <div class="flex justify-between items-start mb-3">
+                  <h3 class="font-medium flex items-center gap-2">
+                    <Icon src={CalendarDays} class="w-4 h-4" />
+                    {formatDate(entry.date)}
+                  </h3>
+                  
+                  {#if entries.filter(e => e.date.toDateString() === entry.date.toDateString()).length > 1}
+                    <button 
+                      class="text-red-400 hover:text-red-300"
+                      title="Remove Entry"
+                      onclick={() => removeEntry(entry.id)}
                     >
-                      <option value="">No ticket</option>
-                      {#each getAvailableTickets(entry) as ticket}
-                        <option value={ticket.id}>{ticket.title}</option>
+                      <Icon src={MinusCircle} class="w-5 h-5" />
+                    </button>
+                  {/if}
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div class="col-span-1 md:col-span-2">
+                    <label for={`description-${entry.id}`} class="text-sm text-gray-400">Description</label>
+                    <input 
+                      id={`description-${entry.id}`}
+                      class="form-input w-full" 
+                      placeholder="What did you work on?"
+                      bind:value={entry.description}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label for={`duration-${entry.id}`} class="text-sm text-gray-400 flex items-center gap-2">
+                      <Icon src={Clock} class="w-4 h-4 text-blue-500" />
+                      Duration {getTimeDisplayLabel(entry.minutes)}
+                    </label>
+                    <input 
+                      id={`duration-${entry.id}`}
+                      class="form-input w-full" 
+                      placeholder="HH:MM or minutes"
+                      value={entry.duration}
+                      oninput={(e) => updateEntryDuration(entry, e.currentTarget.value)}
+                    />
+                    <span class="text-xs text-gray-500">Enter as minutes or HH:MM</span>
+                  </div>
+                  
+                  <div>
+                    <label for={`client-${entry.id}`} class="text-sm text-gray-400">Client</label>
+                    <select
+                      id={`client-${entry.id}`}
+                      class="form-select w-full"
+                      bind:value={entry.clientId}
+                    >
+                      <option value="">Select a client</option>
+                      {#each $clientStore as client}
+                        <option value={client.id}>{client.name}</option>
                       {/each}
                     </select>
                   </div>
-                {/if}
-              </div>
-            </div>
-          {/each}
-          
-          {#if entries.length > 0}
-            <div class="flex items-center justify-between pt-3">
-              <div class="text-sm text-gray-400">
-                <span class="font-medium text-white">{entries.length}</span> entries, 
-                <span class="font-medium text-white">{minutesToFormatted(totalMinutes)}</span> total
-                {#if billable && effectiveRate > 0}
-                  <span class="ml-1">
-                    (<span class="font-medium text-green-400">{formatCurrency(totalAmount)}</span>)
-                  </span>
-                {/if}
-              </div>
-              
-              <button
-                class="btn btn-secondary btn-sm"
-                onclick={() => addEntryForDate(entries[0].date)}
-              >
-                <Icon src={Plus} class="w-4 h-4 mr-1" />
-                Add Another Entry
-              </button>
-            </div>
-          {/if}
-        </div>
-      {:else if currentStep === STEPS.REVIEW}
-        <!-- Step 4: Review & Submit -->
-        <div class="space-y-6 container-glass rounded-lg p-6">
-          <div class="p-4 bg-blue-500 bg-opacity-10 rounded-lg border border-blue-500 border-opacity-20">
-            <h3 class="font-medium text-blue-400 mb-2">Summary</h3>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <p class="text-sm text-gray-400">Client</p>
-                <p class="font-medium">{selectedClient?.name || 'None'}</p>
-              </div>
-              <div>
-                <p class="text-sm text-gray-400">Date Range</p>
-                <p class="font-medium">
-                  {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
-                </p>
-              </div>
-              <div>
-                <p class="text-sm text-gray-400">Entries</p>
-                <p class="font-medium">{entries.length} entries</p>
-              </div>
-              <div>
-                <p class="text-sm text-gray-400">Total Time</p>
-                <p class="font-medium">{minutesToFormatted(totalMinutes)}</p>
-              </div>
-              {#if billable}
-                <div class="col-span-2">
-                  <p class="text-sm text-gray-400">Billing</p>
-                  <p class="font-medium">
-                    {billable ? 'Billable' : 'Non-billable'}
-                    {#if billable && selectedRate}
-                      at {formatCurrency(effectiveRate)}/hr 
-                      ({formatCurrency(totalAmount)} total)
-                    {/if}
-                  </p>
-                </div>
-              {/if}
-            </div>
-          </div>
-          
-          <div class="space-y-3 max-h-[300px] overflow-y-auto">
-            <h3 class="font-medium border-b border-gray-700 border-opacity-30 pb-2">Time Entries</h3>
-            {#each entries as entry}
-              <div class="p-3 bg-gray-800 bg-opacity-20 rounded-lg border border-gray-700 border-opacity-30 flex justify-between">
-                <div>
-                  <p class="font-medium">{entry.description || 'No description'}</p>
-                  <p class="text-sm text-gray-400">
-                    {formatDate(entry.date)} · {minutesToFormatted(entry.minutes)}
-                    {#if entry.ticketId}
-                      · <span class="text-blue-400">Ticket assigned</span>
-                    {/if}
-                  </p>
-                </div>
-                <div class="text-right">
-                  <p class="font-medium">
-                    {#if billable && effectiveRate > 0}
-                      {formatCurrency(effectiveRate * (entry.minutes / 60))}
-                    {:else}
-                      {minutesToFormatted(entry.minutes)}
-                    {/if}
-                  </p>
+                  
+                  {#if getAvailableTickets(entry).length > 0}
+                    <div class="col-span-full">
+                      <label for={`ticket-${entry.id}`} class="text-sm text-gray-400">Ticket (Optional)</label>
+                      <select
+                        id={`ticket-${entry.id}`}
+                        class="form-select w-full"
+                        bind:value={entry.ticketId}
+                      >
+                        <option value="">No ticket</option>
+                        {#each getAvailableTickets(entry) as ticket}
+                          <option value={ticket.id}>{ticket.title}</option>
+                        {/each}
+                      </select>
+                    </div>
+                  {/if}
                 </div>
               </div>
             {/each}
+            
+            {#if entries.length > 0}
+              <div class="flex items-center justify-between pt-3">
+                <div class="text-sm text-gray-400">
+                  <span class="font-medium text-white">{entries.length}</span> entries, 
+                  <span class="font-medium text-white">{minutesToFormatted(totalMinutes)}</span> total
+                  {#if billable && effectiveRate > 0}
+                    <span class="ml-1">
+                      (<span class="font-medium text-green-400">{formatCurrency(totalAmount)}</span>)
+                    </span>
+                  {/if}
+                </div>
+                
+                <button
+                  class="btn btn-secondary btn-sm"
+                  onclick={() => addEntryForDate(entries[0].date)}
+                >
+                  <Icon src={Plus} class="w-4 h-4 mr-1" />
+                  Add Another Entry
+                </button>
+              </div>
+            {/if}
           </div>
-        </div>
-      {/if}
+        {:else if currentStep === STEPS.REVIEW}
+          <!-- Step 4: Review & Submit -->
+          <div class="space-y-6 container-glass rounded-lg p-6">
+            <div class="p-4 bg-blue-500 bg-opacity-10 rounded-lg border border-blue-500 border-opacity-20">
+              <h3 class="font-medium text-blue-400 mb-2">Summary</h3>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <p class="text-sm text-gray-400">Client</p>
+                  <p class="font-medium">{selectedClient?.name || 'None'}</p>
+                </div>
+                <div>
+                  <p class="text-sm text-gray-400">Date Range</p>
+                  <p class="font-medium">
+                    {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
+                  </p>
+                </div>
+                <div>
+                  <p class="text-sm text-gray-400">Entries</p>
+                  <p class="font-medium">{entries.length} entries</p>
+                </div>
+                <div>
+                  <p class="text-sm text-gray-400">Total Time</p>
+                  <p class="font-medium">{minutesToFormatted(totalMinutes)}</p>
+                </div>
+                {#if billable}
+                  <div class="col-span-2">
+                    <p class="text-sm text-gray-400">Billing</p>
+                    <p class="font-medium">
+                      {billable ? 'Billable' : 'Non-billable'}
+                      {#if billable && selectedRate}
+                        at {formatCurrency(effectiveRate)}/hr 
+                        ({formatCurrency(totalAmount)} total)
+                      {/if}
+                    </p>
+                  </div>
+                {/if}
+              </div>
+            </div>
+            
+            <div class="space-y-3 max-h-[300px] overflow-y-auto">
+              <h3 class="font-medium border-b border-gray-700 border-opacity-30 pb-2">Time Entries</h3>
+              {#each entries as entry}
+                <div class="p-3 bg-gray-800 bg-opacity-20 rounded-lg border border-gray-700 border-opacity-30 flex justify-between">
+                  <div>
+                    <p class="font-medium">{entry.description || 'No description'}</p>
+                    <p class="text-sm text-gray-400">
+                      {formatDate(entry.date)} · {minutesToFormatted(entry.minutes)}
+                      {#if entry.ticketId}
+                        · <span class="text-blue-400">Ticket assigned</span>
+                      {/if}
+                    </p>
+                  </div>
+                  <div class="text-right">
+                    <p class="font-medium">
+                      {#if billable && effectiveRate > 0}
+                        {formatCurrency(effectiveRate * (entry.minutes / 60))}
+                      {:else}
+                        {minutesToFormatted(entry.minutes)}
+                      {/if}
+                    </p>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
     </div>
     
     <!-- Wizard Footer -->
@@ -729,4 +804,21 @@
 
 <style lang="postcss">
   /* No custom styles needed - using styles from tailwind-theme.css */
+
+  /* Fix for dropdown menus to appear above other content */
+  :global(.form-select) {
+    position: relative;
+    z-index: 20;
+  }
+
+  /* Ensure each time entry card has proper stacking context */
+  :global([id^="client-"]) {
+    position: relative;
+    z-index: 30; /* Higher z-index for client dropdowns */
+  }
+
+  /* Style for the expanded dropdown */
+  :global(.form-select:focus) {
+    z-index: 40; /* Even higher z-index when focused */
+  }
 </style>

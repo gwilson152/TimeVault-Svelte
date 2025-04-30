@@ -9,7 +9,7 @@
   $: totalUnbilledHours = $entriesWithClientInfo
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
     .filter(entry => !entry.billed && entry.billable)
-    .reduce((sum, entry) => sum + entry.duration, 0);
+    .reduce((sum, entry) => sum + entry.minutes / 60, 0);
 
   $: totalUnbilledAmount = $entriesWithClientInfo
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
@@ -25,7 +25,7 @@
         rate = override.value;
       }
 
-      return sum + (entry.duration * rate);
+      return sum + ((entry.minutes / 60) * rate);
     }, 0);
 
   $: activeClients = $clientStore.filter(client => {

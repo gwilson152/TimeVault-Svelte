@@ -187,12 +187,11 @@
 <Modal
   open={showForm}
   title={editingStatus ? 'Edit Status' : 'New Status'}
-  width="max-w-lg"
-  hasFooter={false}
-  on:close={cancelForm}
+  size="lg"
+  onclose={cancelForm}
 >
-  <form on:submit|preventDefault={editingStatus ? handleUpdateStatus : handleCreateStatus} class="p-6">
-    <div class="form-group space-y-4">
+  <div class="p-6">
+    <form class="space-y-4">
       <div class="form-field">
         <label for="statusName" class="form-label">Name</label>
         <input
@@ -249,15 +248,20 @@
           <span class="ml-2">Closed Status</span>
         </label>
       </div>
-    </div>
+    </form>
+  </div>
 
-    <div class="flex justify-end gap-3 mt-6">
-      <button type="button" class="btn btn-secondary" on:click={cancelForm}>
+  {#snippet footer()}
+    <div slot="footer" class="flex justify-end gap-3">
+      <button class="btn btn-secondary" onclick={cancelForm}>
         Cancel
       </button>
-      <button type="submit" class="btn btn-primary">
+      <button 
+        class="btn btn-primary" 
+        onclick={editingStatus ? handleUpdateStatus : handleCreateStatus}
+      >
         {editingStatus ? 'Save Changes' : 'Create Status'}
       </button>
     </div>
-  </form>
+  {/snippet}
 </Modal>

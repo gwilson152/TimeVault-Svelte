@@ -269,10 +269,9 @@
 
 <Modal
   open={showForm}
-  title={editingTicket ? 'Edit Ticket' : 'New Ticket'}
-  width="max-w-2xl"
-  hasFooter={false}
-  on:close={handleCancel}
+  title={editingTicket ? 'Edit Ticket' : 'New Ticket'} 
+  size="lg"
+  onclose={handleCancel}
 >
   <div class="p-6">
     <TicketForm 

@@ -6,6 +6,7 @@
   import { Icon } from '@steeze-ui/svelte-icon';
   import { PaperAirplane, LockClosed } from '@steeze-ui/heroicons';
   import * as api from '$lib/services/api';
+  import Modal from '$lib/components/Modal.svelte';
   
   const props = $props<{
     ticketId: string;
@@ -20,6 +21,8 @@
   let isLoading = $state(true);
   let isSubmitting = $state(false);
   let error = $state<string | null>(null);
+  let showDeleteModal = $state(false);
+  let noteToDelete = $state<TicketNote | null>(null);
   
   // Load notes on component mount
   onMount(async () => {
@@ -108,6 +111,31 @@
     }
   }
   
+  // Handle delete confirmation
+  async function handleDeleteConfirm() {
+    if (!noteToDelete || !props.ticketId) return;
+    
+    try {
+      const response = await fetch(`/api/tickets/${props.ticketId}/notes/${noteToDelete.id}`, {
+        method: 'DELETE'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to delete note' }));
+        throw new Error(errorData.error || 'Failed to delete note');
+      }
+      
+      // Reload notes
+      await loadNotes();
+    } catch (err) {
+      console.error('Failed to delete note:', err);
+      error = err instanceof Error ? err.message : 'Failed to delete note';
+    } finally {
+      showDeleteModal = false;
+      noteToDelete = null;
+    }
+  }
+  
   // Format date for display
   function formatDate(date: Date): string {
     return new Date(date).toLocaleString('en-US', {
@@ -189,6 +217,16 @@
                 <span>Internal</span>
               </span>
             {/if}
+            
+            <button 
+              class="btn btn-danger btn-sm"
+              onclick={() => {
+                noteToDelete = note;
+                showDeleteModal = true;
+              }}
+            >
+              Delete
+            </button>
           </div>
           
           <div class="mt-2 whitespace-pre-wrap">
@@ -199,3 +237,27 @@
     </div>
   {/if}
 </div>
+
+<!-- Note Delete Confirmation Modal -->
+<Modal
+  open={showDeleteModal}
+  title="Delete Note"
+  size="md"
+  onclose={() => showDeleteModal = false}
+>
+  <div class="p-6">
+    <p class="mb-4 text-gray-900">
+      Are you sure you want to delete this note?
+    </p>
+    <p class="text-sm text-gray-600">
+      This action cannot be undone.
+    </p>
+  </div>
+
+  {#snippet footer()}
+    <div slot="footer" class="flex justify-end gap-3">
+      <button class="btn btn-secondary" onclick={() => showDeleteModal = false}>Cancel</button>
+      <button class="btn btn-danger" onclick={handleDeleteConfirm}>Delete</button>
+    </div>
+  {/snippet}
+</Modal>

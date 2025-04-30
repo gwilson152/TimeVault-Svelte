@@ -31,7 +31,7 @@ let isUpdating = $state(false);
 let newStatusId = $state<string | null>(null);
 let showTimeEntryForm = $state(false);
 let showDeleteConfirm = $state(false);
-let ticketStatuses = $state([]);
+let ticketStatuses = $state<TicketStatus[]>([]);
 let currentUser = $state<User | null>(null);
 let activeTab = $state('info');
 
@@ -40,7 +40,7 @@ const ticketId = $derived($page.params.id);
 
 const clientName = $derived(
   ticket?.clientId 
-    ? $clientStore.find(c => c.id === ticket.clientId)?.name || 'Unknown Client' 
+    ? ($clientStore.find(c => c.id === ticket?.clientId)?.name ?? 'Unknown Client')
     : ''
 );
 
@@ -160,21 +160,44 @@ function handleTabChange(tabId: string) {
 }
 
 // Set up tabs for the ticket detail page
-const tabs = [
-  { id: 'info', title: 'Overview', icon: InformationCircle },
-  { id: 'time', title: 'Time Entries', icon: Clock },
-  { id: 'notes', title: 'Notes', icon: ChatBubbleLeftRight }
+const tabs: { id: string; title: string; icon: () => any }[] = [
+  { 
+    id: 'info', 
+    title: 'Overview', 
+    icon: () => InformationCircle 
+  },
+  { 
+    id: 'time', 
+    title: 'Time Entries', 
+    icon: () => Clock
+  },
+  { 
+    id: 'notes', 
+    title: 'Notes', 
+    icon: () => ChatBubbleLeftRight
+  }
 ];
 
 // Tab content functions
-const tabContent = {
-  info: () => {
-    return {
-      component: GlassCard,
-      props: {
-        class: "p-6"
-      },
-      content: `
+type HandlerElement = HTMLElement;
+type HandlerButton = HTMLButtonElement;
+
+type TabContentConfig = {
+  component: any; // Using any here since GlassCard's type is causing conflicts
+  props?: Record<string, any>;
+  content: string;
+  handlers?: {
+    onMount?: (element: HTMLElement) => void | (() => void);
+  };
+};
+
+const tabContent: Record<string, () => TabContentConfig> = {
+  info: () => ({
+    component: GlassCard,
+    props: {
+      className: "p-6"
+    },
+    content: `
         <div class="space-y-4">
           <h2 class="text-xl font-semibold mb-4">Ticket Details</h2>
           
@@ -232,30 +255,27 @@ const tabContent = {
           </div>
         </div>
       `,
-      handlers: {
-        onMount: (element) => {
-          const logTimeBtn = element.querySelector('[data-action="logTime"]');
-          const editTicketBtn = element.querySelector('[data-action="editTicket"]');
-          
-          if (logTimeBtn) logTimeBtn.addEventListener('click', handleTimeEntryClick);
-          if (editTicketBtn) editTicketBtn.addEventListener('click', handleEdit);
-          
-          return () => {
-            if (logTimeBtn) logTimeBtn.removeEventListener('click', handleTimeEntryClick);
-            if (editTicketBtn) editTicketBtn.removeEventListener('click', handleEdit);
-          };
-        }
+    handlers: {
+      onMount: (element) => {
+        const logTimeBtn = element.querySelector('[data-action="logTime"]') as HandlerButton;
+        const editTicketBtn = element.querySelector('[data-action="editTicket"]') as HandlerButton;
+        
+        if (logTimeBtn) logTimeBtn.addEventListener('click', handleTimeEntryClick);
+        if (editTicketBtn) editTicketBtn.addEventListener('click', handleEdit);
+        
+        return () => {
+          if (logTimeBtn) logTimeBtn.removeEventListener('click', handleTimeEntryClick);
+          if (editTicketBtn) editTicketBtn.removeEventListener('click', handleEdit);
+        };
       }
-    };
-  },
-  
-  time: () => {
-    return {
-      component: GlassCard,
-      props: {
-        class: "p-6"
-      },
-      content: `
+    }
+  }),
+  time: () => ({
+    component: GlassCard,
+    props: {
+      className: "p-6"
+    },
+    content: `
         <div class="flex justify-between items-center mb-6">
           <h2 class="text-xl font-semibold">Time Entries</h2>
           <button 
@@ -330,77 +350,72 @@ const tabContent = {
           </div>
         `}
       `,
-      handlers: {
-        onMount: (element) => {
-          const addTimeEntryBtn = element.querySelector('[data-action="addTimeEntry"]');
-          if (addTimeEntryBtn) addTimeEntryBtn.addEventListener('click', handleTimeEntryClick);
-          
-          // Setup edit entry buttons
-          const editButtons = element.querySelectorAll('[data-action="editEntry"]');
+    handlers: {
+      onMount: (element) => {
+        const addTimeEntryBtn = element.querySelector('[data-action="addTimeEntry"]') as HandlerButton;
+        if (addTimeEntryBtn) addTimeEntryBtn.addEventListener('click', handleTimeEntryClick);
+        
+        // Setup edit entry buttons
+        const editButtons = element.querySelectorAll('[data-action="editEntry"]') as NodeListOf<HandlerButton>;
+        editButtons.forEach(btn => {
+          const entryId = btn.getAttribute('data-entry-id');
+          const entry = ticketEntries.find(e => e.id === entryId);
+          if (entry) {
+            btn.addEventListener('click', () => handleTimeEntryEdit(entry));
+          }
+        });
+        
+        return () => {
+          if (addTimeEntryBtn) addTimeEntryBtn.removeEventListener('click', handleTimeEntryClick);
           editButtons.forEach(btn => {
             const entryId = btn.getAttribute('data-entry-id');
             const entry = ticketEntries.find(e => e.id === entryId);
             if (entry) {
-              btn.addEventListener('click', () => handleTimeEntryEdit(entry));
+              btn.removeEventListener('click', () => handleTimeEntryEdit(entry));
             }
           });
-          
-          return () => {
-            if (addTimeEntryBtn) addTimeEntryBtn.removeEventListener('click', handleTimeEntryClick);
-            editButtons.forEach(btn => {
-              const entryId = btn.getAttribute('data-entry-id');
-              const entry = ticketEntries.find(e => e.id === entryId);
-              if (entry) {
-                btn.removeEventListener('click', () => handleTimeEntryEdit(entry));
-              }
-            });
-          };
-        }
+        };
       }
-    };
-  },
-  
-  notes: () => {
-    // For the notes tab, we'll use a special implementation that incorporates the TicketNotes component
-    return {
-      component: GlassCard,
-      props: {
-        class: "p-6"
-      },
-      content: `
+    }
+  }),
+  notes: () => ({
+    component: GlassCard,
+    props: {
+      className: "p-6"
+    },
+    content: `
         <div class="flex items-center gap-3 mb-6">
           <span class="h-5 w-5 text-blue-400">💬</span>
           <h2 class="text-xl font-semibold">Notes & Comments</h2>
         </div>
         <div id="notes-container"></div>
       `,
-      handlers: {
-        onMount: (element) => {
-          const notesContainer = element.querySelector('#notes-container');
+    handlers: {
+      onMount: (element) => {
+        const notesContainer = element.querySelector('#notes-container') as HandlerElement;
+        
+        if (notesContainer) {
+          // Create the TicketNotes component and append it to the container
+          const notesComponent = new TicketNotes({
+            target: notesContainer,
+            props: {
+              ticketId,
+              userId: currentUser?.id || '',
+              showInternalNotes: $userPermissions.canViewInternalNotes
+            }
+          });
           
-          if (notesContainer) {
-            // Create the TicketNotes component and append it to the container
-            const notesComponent = new TicketNotes({
-              target: notesContainer,
-              props: {
-                ticketId,
-                userId: currentUser?.id || '',
-                showInternalNotes: $userPermissions.canViewInternalNotes
-              }
-            });
-            
-            return () => {
-              if (notesComponent && notesComponent.$destroy) {
-                notesComponent.$destroy();
-              }
-            };
-          }
-          
-          return () => {};
+          return () => {
+            if (notesComponent && notesComponent.$destroy) {
+              notesComponent.$destroy();
+            }
+          };
         }
+        
+        return () => {};
       }
-    };
-  }
+    }
+  })
 };
 </script>
 
@@ -416,7 +431,7 @@ const tabContent = {
 
   {#if ticket}
     <!-- Header Card -->
-    <GlassCard class="p-6">
+    <GlassCard className="p-6">
       <div class="flex flex-col md:flex-row justify-between items-start gap-6">
         <!-- Left side - Title and metadata -->
         <div class="space-y-4">
@@ -508,7 +523,7 @@ const tabContent = {
       tabContent={tabContent}
     />
   {:else}
-    <GlassCard class="p-6 text-center">
+    <GlassCard className="p-6 text-center">
       <h1 class="text-2xl font-bold mb-4">Ticket not found</h1>
       <p class="text-gray-400 mb-6">
         The ticket you're looking for could not be found or may have been deleted.
@@ -524,15 +539,15 @@ const tabContent = {
 <Modal
   open={showTimeEntryForm}
   title="Add Time Entry"
-  hasFooter={false}
-  on:close={() => showTimeEntryForm = false}
+  size="lg"
+  onclose={() => (showTimeEntryForm = false)}
 >
   <div class="p-6">
     <TimeEntryForm
       prefilledTicketId={ticketId}
       prefilledClientId={ticket?.clientId}
       onSave={handleTimeEntrySave}
-      onCancel={() => showTimeEntryForm = false}
+      onCancel={() => (showTimeEntryForm = false)}
     />
   </div>
 </Modal>
@@ -541,31 +556,24 @@ const tabContent = {
 <Modal
   open={showDeleteConfirm}
   title="Delete Ticket"
-  on:close={() => showDeleteConfirm = false}
+  size="md"
+  onclose={() => (showDeleteConfirm = false)}
 >
   <div class="p-6">
-    <p class="mb-4">Are you sure you want to delete this ticket?</p>
-    {#if ticketEntries.length > 0}
-      <div class="bg-amber-900/30 text-amber-400 p-4 rounded">
-        Cannot delete ticket with {ticketEntries.length} associated time entries.
-        Please remove or reassign the time entries first.
-      </div>
-    {/if}
+    <p class="mb-4 text-gray-900">
+      Are you sure you want to delete this ticket?
+    </p>
+    <p class="text-sm text-gray-600">
+      This action cannot be undone.
+    </p>
   </div>
-  
-  <div slot="footer" class="flex justify-end gap-3">
-    <button
-      class="btn btn-secondary"
-      onclick={() => showDeleteConfirm = false}
-    >
-      Cancel
-    </button>
-    <button
-      class="btn btn-danger"
-      onclick={handleDelete}
-      disabled={ticketEntries.length > 0}
-    >
-      Delete Ticket
-    </button>
-  </div>
+
+  {#snippet footer()}
+    <div slot="footer" class="flex justify-end gap-3">
+      <button class="btn btn-secondary" onclick={() => (showDeleteConfirm = false)}>
+        Cancel
+      </button>
+      <button class="btn btn-danger" onclick={handleDeleteConfirm}>Delete</button>
+    </div>
+  {/snippet}
 </Modal>

@@ -116,7 +116,7 @@
     <h2 class="text-xl font-semibold">Billing Rates</h2>
     <button
       class="btn btn-primary"
-      on:click={() => showForm = true}
+      onclick={() => showForm = true}
     >
       Add New Rate
     </button>
@@ -156,13 +156,13 @@
                 <div class="flex justify-end space-x-2">
                   <button
                     class="table-action-button-primary"
-                    on:click={() => startEdit(rate)}
+                    onclick={() => startEdit(rate)}
                   >
                     Edit
                   </button>
                   <button
                     class="table-action-button-danger"
-                    on:click={() => handleDeleteRate(rate)}
+                    onclick={() => handleDeleteRate(rate)}
                   >
                     Delete
                   </button>
@@ -179,11 +179,11 @@
 <Modal
   open={showForm}
   title={editingRate ? 'Edit Billing Rate' : 'New Billing Rate'}
-  width="max-w-lg"
-  on:close={cancelForm}
+  size="lg"
+  onclose={cancelForm}
 >
-  <form on:submit|preventDefault={editingRate ? handleUpdateRate : handleCreateRate} class="p-6">
-    <div class="form-group space-y-4">
+  <div class="p-6">
+    <form @submit.preventDefault={editingRate ? handleUpdateRate : handleCreateRate} class="space-y-4">
       <div class="form-field">
         <label for="rateName" class="form-label">Name</label>
         <input
@@ -232,15 +232,15 @@
           <span class="ml-2">Default Rate</span>
         </label>
       </div>
-    </div>
 
-    <div class="flex justify-end gap-3 mt-6">
-      <button type="button" class="btn btn-secondary" on:click={cancelForm}>
-        Cancel
-      </button>
-      <button type="submit" class="btn btn-primary">
-        {editingRate ? 'Save Changes' : 'Create Rate'}
-      </button>
-    </div>
-  </form>
+      <div class="flex justify-end gap-3">
+        <button type="button" class="btn btn-secondary" onclick={cancelForm}>
+          Cancel
+        </button>
+        <button type="submit" class="btn btn-primary">
+          {editingRate ? 'Save Changes' : 'Create Rate'}
+        </button>
+      </div>
+    </form>
+  </div>
 </Modal>

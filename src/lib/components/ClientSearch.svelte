@@ -248,7 +248,7 @@
           {#each filteredClients as { client, level }}
             <button
               type="button"
-              class="client-search-option {props.selectedClientId === client.id ? 'selected' : ''}"
+              class="client-search-option z-[1000] {props.selectedClientId === client.id ? 'selected' : ''}"
               style="padding-left: {level * 1.5 + 0.75}rem"
               role="option"
               aria-selected={props.selectedClientId === client.id}
