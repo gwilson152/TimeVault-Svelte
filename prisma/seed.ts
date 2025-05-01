@@ -59,6 +59,14 @@ async function main() {
       label: 'Time Entry Format',
       description: 'Format for tracking time (minutes or hh:mm)',
       type: 'string'
+    },
+    {
+      key: 'next_ticket_number',
+      value: '1001',
+      category: 'tickets',
+      label: 'Next Ticket Number',
+      description: 'The next ticket number to be assigned',
+      type: 'number'
     }
   ];
 

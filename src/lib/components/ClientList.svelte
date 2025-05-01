@@ -3,6 +3,9 @@
   import type { Client } from '$lib/types';
   import { clientStore } from '$lib/stores/clientStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
+  import { getAvailableContainers } from '$lib/utils/clientUtils';
+  import { Icon } from '@steeze-ui/svelte-icon';
+  import { Folder, FolderArrowDown } from '@steeze-ui/heroicons';
   
   interface ClientWithStats extends Client {
     level: number;
@@ -144,6 +147,42 @@
       return newCollapsed;
     });
   }
+
+  let showContainerModal = writable(false);
+  let selectedClientId = writable<string | null>(null);
+  let selectedContainerId = writable<string | null>(null);
+
+  // Get available containers for the selected client
+  const availableContainers = derived([clientStore, selectedClientId], ([$clientStore, $selectedClientId]) => {
+    if (!$selectedClientId) return [];
+    const client = $clientStore.find(c => c.id === $selectedClientId);
+    if (!client || !client.parentId) return [];
+    return getAvailableContainers($clientStore, client.parentId);
+  });
+
+  async function openContainerSelect(clientId: string) {
+    selectedClientId.set(clientId);
+    selectedContainerId.set(null);
+    showContainerModal.set(true);
+  }
+
+  async function assignContainer() {
+    const clientId = $selectedClientId;
+    const containerId = $selectedContainerId;
+    if (!clientId || !containerId) return;
+
+    try {
+      await clientStore.update(clientId, {
+        parentId: containerId
+      });
+      showContainerModal.set(false);
+      selectedClientId.set(null);
+      selectedContainerId.set(null);
+    } catch (error) {
+      console.error('Failed to assign container:', error);
+      alert('Failed to assign container. Please try again.');
+    }
+  }
 </script>
 
 <div class="space-y-3">
@@ -253,6 +292,16 @@
                   >
                     Delete
                   </button>
+                  {#if client.type === 'individual' && client.parentId}
+                    <button
+                      class="btn btn-secondary btn-sm"
+                      onclick={() => openContainerSelect(client.id)}
+                      title="Assign to Container"
+                    >
+                      <Icon src={FolderArrowDown} class="w-4 h-4 mr-1" />
+                      Assign Container
+                    </button>
+                  {/if}
                 </div>
               </td>
             </tr>
@@ -262,3 +311,41 @@
     </table>
   </div>
 </div>
+
+<Modal
+  open={$showContainerModal}
+  title="Assign to Container"
+  size="md"
+  onclose={() => showContainerModal.set(false)}
+>
+  <div class="p-6">
+    <p class="mb-4 text-gray-600">
+      Select a container to move this client to. The client will remain under the same business.
+    </p>
+    
+    <div class="form-group">
+      <label for="containerId" class="form-label">Container</label>
+      <select
+        id="containerId"
+        class="form-control"
+        bind:value={$selectedContainerId}
+      >
+        <option value="">Root Level (No Container)</option>
+        {#each $availableContainers as container}
+          <option value={container.id}>
+            {container.name}
+          </option>
+        {/each}
+      </select>
+    </div>
+  </div>
+
+  <div slot="footer" class="flex justify-end gap-3">
+    <button class="btn btn-secondary" onclick={() => showContainerModal.set(false)}>
+      Cancel
+    </button>
+    <button class="btn btn-primary" onclick={assignContainer}>
+      Assign
+    </button>
+  </div>
+</Modal>

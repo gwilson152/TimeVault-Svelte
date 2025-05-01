@@ -82,3 +82,32 @@ export function getClientHierarchyPath(clients: Client[], clientId: string): Cli
   
   return result;
 }
+
+/**
+ * Find potential parent business client by email domain
+ */
+export function findParentByEmailDomain(clients: Client[], email: string): Client | undefined {
+  if (!email) return undefined;
+  
+  const domain = email.split('@')[1];
+  if (!domain) return undefined;
+
+  const businessClients = clients.filter(c => c.type === 'business' && c.domains?.length > 0);
+  return businessClients.find(client => 
+    client.domains.some(clientDomain => 
+      domain.toLowerCase().endsWith(clientDomain.toLowerCase())
+    )
+  );
+}
+
+/**
+ * Get available container options for a client within a business
+ */
+export function getAvailableContainers(clients: Client[], businessId: string): Client[] {
+  const business = clients.find(c => c.id === businessId);
+  if (!business) return [];
+
+  return getClientHierarchy(clients, businessId)
+    .filter(c => c.type === 'container')
+    .sort((a, b) => a.name.localeCompare(b.name));
+}

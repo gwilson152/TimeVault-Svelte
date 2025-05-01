@@ -1,203 +1,219 @@
 <script lang="ts">
-import { onMount } from 'svelte';
-import { page } from '$app/stores';
-import { goto } from '$app/navigation';
-import { ticketStore, ticketsWithClientInfo } from '$lib/stores/ticketStore';
-import { clientStore } from '$lib/stores/clientStore';
-import { timeEntryStore } from '$lib/stores/timeEntryStore';
-import { settingsStore } from '$lib/stores/settingsStore';
-import { userStore, userPermissions } from '$lib/stores/userStore';
-import { formatCurrency, formatTime } from '$lib/utils/invoiceUtils';
-import { Icon } from '@steeze-ui/svelte-icon';
-import {
-  ArrowLeft,
-  Clock,
-  CurrencyDollar,
-  DocumentText,
-  Pencil,
-  Plus,
-  Trash,
-  User as UserIcon,
-  ChatBubbleLeftRight,
-  Ticket as TicketIcon,
-  InformationCircle
-} from '@steeze-ui/heroicons';
-import { GlassCard, Modal, TimeEntryForm, TicketNotes, StatsCard, TabView } from '$lib/components';
-import type { TimeEntry, Ticket, TicketStatus, User } from '$lib/types';
+  import { onMount } from 'svelte';
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { ticketStore, ticketsWithClientInfo } from '$lib/stores/ticketStore';
+  import { clientStore } from '$lib/stores/clientStore';
+  import { timeEntryStore } from '$lib/stores/timeEntryStore';
+  import { settingsStore } from '$lib/stores/settingsStore';
+  import { userStore, userPermissions } from '$lib/stores/userStore';
+  import { formatCurrency, formatTime } from '$lib/utils/invoiceUtils';
+  import { minutesToFormatted } from '$lib/utils/timeUtils';
+  import { Icon } from '@steeze-ui/svelte-icon';
+  import {
+    ArrowLeft,
+    Clock,
+    CurrencyDollar,
+    DocumentText,
+    Pencil,
+    Plus,
+    Trash,
+    User as UserIcon,
+    ChatBubbleLeftRight,
+    Ticket as TicketIcon,
+    InformationCircle
+  } from '@steeze-ui/heroicons';
+  import { GlassCard, Modal, TimeEntryForm, TicketNotes, StatsCard, TabView } from '$lib/components';
+  import type { TimeEntry, Ticket, TicketStatus, User } from '$lib/types';
 
-// State with runes
-let ticket = $state<Ticket | null>(null);
-let isUpdating = $state(false);
-let newStatusId = $state<string | null>(null);
-let showTimeEntryForm = $state(false);
-let showDeleteConfirm = $state(false);
-let ticketStatuses = $state<TicketStatus[]>([]);
-let currentUser = $state<User | null>(null);
-let activeTab = $state('info');
+  // State with runes
+  let ticket = $state<Ticket | null>(null);
+  let isLoading = $state(true);
+  let isUpdating = $state(false);
+  let newStatusId = $state<string | null>(null);
+  let showTimeEntryForm = $state(false);
+  let showDeleteConfirm = $state(false);
+  let ticketStatuses = $state<TicketStatus[]>([]);
+  let currentUser = $state<User | null>(null);
+  let activeTab = $state('info');
+  let error = $state<string | null>(null);
 
-// Props and computed values using runes
-const ticketId = $derived($page.params.id);
+  // Props and computed values using runes
+  const ticketId = $derived($page.params.id);
 
-const clientName = $derived(
-  ticket?.clientId 
-    ? ($clientStore.find(c => c.id === ticket?.clientId)?.name ?? 'Unknown Client')
-    : ''
-);
+  const clientName = $derived(
+    ticket?.clientId 
+      ? ($clientStore.find(c => c.id === ticket?.clientId)?.name ?? 'Unknown Client')
+      : ''
+  );
 
-const ticketEntries = $derived(
-  $timeEntryStore.filter(entry => entry.ticketId === ticketId)
-);
+  const ticketEntries = $derived(
+    $timeEntryStore.filter(entry => entry.ticketId === ticketId)
+  );
 
-const totalMinutes = $derived(
-  ticketEntries.reduce((sum, entry) => sum + (entry.minutes || 0), 0)
-);
+  const totalMinutes = $derived(
+    ticketEntries.reduce((sum, entry) => sum + (entry.minutes || 0), 0)
+  );
 
-const totalHours = $derived(totalMinutes / 60);
+  const totalHours = $derived(totalMinutes / 60);
 
-const totalBillableAmount = $derived(
-  ticketEntries
-    .filter(entry => entry.billable)
-    .reduce((sum, entry) => {
-      const rate = entry.billingRate?.rate || 0;
-      return sum + (entry.minutes / 60) * rate;
-    }, 0)
-);
+  const totalBillableAmount = $derived(
+    ticketEntries
+      .filter(entry => entry.billable)
+      .reduce((sum, entry) => {
+        const rate = entry.billingRate?.rate || 0;
+        return sum + (entry.minutes / 60) * rate;
+      }, 0)
+  );
 
-// Format date helper
-function formatDate(date: Date | string): string {
-  return new Date(date).toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-}
-
-// Load initial data
-onMount(async () => {
-  try {
-    await Promise.all([
-      ticketStore.load(),
-      clientStore.load(),
-      timeEntryStore.load(),
-      settingsStore.loadTicketStatuses()
-    ]);
-    
-    // Get the current user ID and set user data from the store
-    userStore.subscribe(state => {
-      currentUser = state.user;
-    })();
-    
-    ticketStatuses = await settingsStore.loadTicketStatuses();
-  } catch (error) {
-    console.error('Failed to load data:', error);
+  // Format date helper
+  function formatDate(date: Date | string): string {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    if (!(d instanceof Date) || isNaN(d.getTime())) {
+      console.warn('Invalid date in formatDate:', { date, type: typeof date });
+      return 'Invalid Date';
+    }
+    return d.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   }
-});
 
-// Update ticket when data changes
-$effect(() => {
-  if ($ticketsWithClientInfo.length > 0 && ticketId) {
-    ticket = $ticketsWithClientInfo.find(t => t.id === ticketId) || null;
-    if (ticket) {
-      newStatusId = ticket.statusId;
+  // Load initial data
+  onMount(async () => {
+    try {
+      isLoading = true;
+      error = null;
+      await Promise.all([
+        ticketStore.load(),
+        clientStore.load(),
+        timeEntryStore.load(),
+        settingsStore.loadTicketStatuses()
+      ]);
+
+      // Get the current user
+      userStore.subscribe(state => {
+        currentUser = state.user;
+      })();
+
+      // Load ticket statuses
+      ticketStatuses = $settingsStore.ticketSettings.statuses || [];
+    } catch (err) {
+      console.error('Failed to load data:', err);
+      error = err instanceof Error ? err.message : 'Failed to load ticket data';
+    } finally {
+      isLoading = false;
+    }
+  });
+
+  // Update ticket when data changes
+  $effect(() => {
+    if ($ticketsWithClientInfo.length > 0 && ticketId && !ticket) {
+      ticket = $ticketsWithClientInfo.find(t => t.id === ticketId) || null;
+      if (ticket) {
+        newStatusId = ticket.statusId;
+      }
+    }
+  });
+
+  // Event Handlers
+  async function updateStatus() {
+    if (!ticket || ticket.statusId === newStatusId || !newStatusId) return;
+    
+    isUpdating = true;
+    try {
+      await ticketStore.update(ticket.id, {
+        statusId: newStatusId
+      });
+    } catch (err) {
+      console.error('Failed to update ticket status:', err);
+      error = err instanceof Error ? err.message : 'Failed to update ticket status';
+    } finally {
+      isUpdating = false;
     }
   }
-});
 
-// Event Handlers
-async function updateStatus() {
-  if (!ticket || ticket.statusId === newStatusId || !newStatusId) return;
-  
-  isUpdating = true;
-  try {
-    await ticketStore.update(ticket.id, {
-      statusId: newStatusId
-    });
-    await ticketStore.load();
-  } catch (error) {
-    console.error('Failed to update ticket status:', error);
-  } finally {
-    isUpdating = false;
+  function handleEdit() {
+    goto(`/tickets/edit/${ticketId}`);
   }
-}
 
-function handleEdit() {
-  goto(`/tickets/edit/${ticketId}`);
-}
-
-async function handleDelete() {
-  if (!ticket) return;
-  
-  if (ticketEntries.length > 0) {
-    alert(`Cannot delete ticket with ${ticketEntries.length} associated time entries`);
-    return;
+  async function handleDeleteConfirm() {
+    if (!ticket) return;
+    
+    if (ticketEntries.length > 0) {
+      error = `Cannot delete ticket with ${ticketEntries.length} associated time entries`;
+      showDeleteConfirm = false;
+      return;
+    }
+    
+    try {
+      await ticketStore.remove(ticket.id);
+      goto('/tickets');
+    } catch (err) {
+      console.error('Failed to delete ticket:', err);
+      error = err instanceof Error ? err.message : 'Failed to delete ticket';
+    } finally {
+      showDeleteConfirm = false;
+    }
   }
-  
-  try {
-    await ticketStore.remove(ticket.id);
-    goto('/tickets');
-  } catch (error) {
-    console.error('Failed to delete ticket:', error);
+
+  function handleTimeEntryClick() {
+    showTimeEntryForm = true;
   }
-}
 
-function handleTimeEntryClick() {
-  showTimeEntryForm = true;
-}
-
-function handleTimeEntrySave(entry: TimeEntry) {
-  showTimeEntryForm = false;
-  timeEntryStore.load();
-}
-
-function handleTimeEntryEdit(entry: TimeEntry) {
-  goto(`/time-entries?edit=${entry.id}`);
-}
-
-function handleTabChange(tabId: string) {
-  activeTab = tabId;
-}
-
-// Set up tabs for the ticket detail page
-const tabs: { id: string; title: string; icon: () => any }[] = [
-  { 
-    id: 'info', 
-    title: 'Overview', 
-    icon: () => InformationCircle 
-  },
-  { 
-    id: 'time', 
-    title: 'Time Entries', 
-    icon: () => Clock
-  },
-  { 
-    id: 'notes', 
-    title: 'Notes', 
-    icon: () => ChatBubbleLeftRight
+  function handleTimeEntrySave(entry: TimeEntry) {
+    showTimeEntryForm = false;
+    timeEntryStore.load();
   }
-];
 
-// Tab content functions
-type HandlerElement = HTMLElement;
-type HandlerButton = HTMLButtonElement;
+  function handleTimeEntryEdit(entry: TimeEntry) {
+    goto(`/time-entries?edit=${entry.id}`);
+  }
 
-type TabContentConfig = {
-  component: any; // Using any here since GlassCard's type is causing conflicts
-  props?: Record<string, any>;
-  content: string;
-  handlers?: {
-    onMount?: (element: HTMLElement) => void | (() => void);
-  };
-};
+  function handleTabChange(tabId: string) {
+    activeTab = tabId;
+  }
 
-const tabContent: Record<string, () => TabContentConfig> = {
-  info: () => ({
-    component: GlassCard,
-    props: {
-      className: "p-6"
+  // Set up tabs for the ticket detail page
+  const tabs: { id: string; title: string; icon: () => any }[] = [
+    { 
+      id: 'info', 
+      title: 'Overview', 
+      icon: () => InformationCircle 
     },
-    content: `
+    { 
+      id: 'time', 
+      title: 'Time Entries', 
+      icon: () => Clock
+    },
+    { 
+      id: 'notes', 
+      title: 'Notes', 
+      icon: () => ChatBubbleLeftRight
+    }
+  ];
+
+  // Tab content functions
+  type HandlerElement = HTMLElement;
+  type HandlerButton = HTMLButtonElement;
+
+  type TabContentConfig = {
+    component: any;
+    props?: Record<string, any>;
+    content: string;
+    handlers?: {
+      onMount?: (element: HandlerElement) => void | (() => void);
+    };
+  };
+
+  const tabContent: Record<string, () => TabContentConfig> = {
+    info: () => ({
+      component: GlassCard,
+      props: { className: "p-6" },
+      content: `
         <div class="space-y-4">
           <h2 class="text-xl font-semibold mb-4">Ticket Details</h2>
           
@@ -242,47 +258,45 @@ const tabContent: Record<string, () => TabContentConfig> = {
               class="btn btn-primary flex items-center gap-2"
               data-action="logTime"
             >
-              <span class="h-4 w-4">⏱️</span>
+              <Icon src={Plus} class="h-4 w-4" />
               Log Time
             </button>
             <button
               class="btn btn-secondary flex items-center gap-2"
               data-action="editTicket"
             >
-              <span class="h-4 w-4">✏️</span>
+              <Icon src={Pencil} class="h-4 w-4" />
               Edit Ticket
             </button>
           </div>
         </div>
       `,
-    handlers: {
-      onMount: (element) => {
-        const logTimeBtn = element.querySelector('[data-action="logTime"]') as HandlerButton;
-        const editTicketBtn = element.querySelector('[data-action="editTicket"]') as HandlerButton;
-        
-        if (logTimeBtn) logTimeBtn.addEventListener('click', handleTimeEntryClick);
-        if (editTicketBtn) editTicketBtn.addEventListener('click', handleEdit);
-        
-        return () => {
-          if (logTimeBtn) logTimeBtn.removeEventListener('click', handleTimeEntryClick);
-          if (editTicketBtn) editTicketBtn.removeEventListener('click', handleEdit);
-        };
+      handlers: {
+        onMount: (element) => {
+          const logTimeBtn = element.querySelector('[data-action="logTime"]') as HandlerButton;
+          const editTicketBtn = element.querySelector('[data-action="editTicket"]') as HandlerButton;
+          
+          if (logTimeBtn) logTimeBtn.addEventListener('click', handleTimeEntryClick);
+          if (editTicketBtn) editTicketBtn.addEventListener('click', handleEdit);
+          
+          return () => {
+            if (logTimeBtn) logTimeBtn.removeEventListener('click', handleTimeEntryClick);
+            if (editTicketBtn) editTicketBtn.removeEventListener('click', handleEdit);
+          };
+        }
       }
-    }
-  }),
-  time: () => ({
-    component: GlassCard,
-    props: {
-      className: "p-6"
-    },
-    content: `
+    }),
+    time: () => ({
+      component: GlassCard,
+      props: { className: "p-6" },
+      content: `
         <div class="flex justify-between items-center mb-6">
           <h2 class="text-xl font-semibold">Time Entries</h2>
           <button 
             class="btn btn-primary flex items-center gap-2"
             data-action="addTimeEntry"
           >
-            <span class="h-4 w-4">➕</span>
+            <Icon src={Plus} class="h-4 w-4" />
             Add Time Entry
           </button>
         </div>
@@ -309,12 +323,12 @@ const tabContent: Record<string, () => TabContentConfig> = {
                   <tr class="data-table-row" data-entry-id="${entry.id}">
                     <td>${formatDate(entry.date)}</td>
                     <td>${entry.description}</td>
-                    <td class="right-aligned">${formatTime(entry.minutes / 60)}</td>
+                    <td class="right-aligned">${minutesToFormatted(entry.minutes)}</td>
                     <td class="right-aligned">
                       $${entry.billingRate?.rate || 0}/hr
                     </td>
                     <td class="right-aligned">
-                      $${((entry.billingRate?.rate || 0) * (entry.minutes / 60)).toFixed(2)}
+                      ${formatCurrency((entry.billingRate?.rate || 0) * (entry.minutes / 60))}
                     </td>
                     <td>
                       <div class="flex justify-end">
@@ -324,7 +338,7 @@ const tabContent: Record<string, () => TabContentConfig> = {
                           data-action="editEntry"
                           data-entry-id="${entry.id}"
                         >
-                          <span class="h-4 w-4 text-blue-400">✏️</span>
+                          <Icon src={Pencil} class="h-4 w-4 text-blue-400" />
                         </button>
                       </div>
                     </td>
@@ -337,11 +351,11 @@ const tabContent: Record<string, () => TabContentConfig> = {
                     <strong>Total</strong>
                   </td>
                   <td class="right-aligned">
-                    <strong>${formatTime(totalHours)}</strong>
+                    <strong>${minutesToFormatted(totalMinutes)}</strong>
                   </td>
                   <td></td>
                   <td class="right-aligned">
-                    <strong>$${totalBillableAmount.toFixed(2)}</strong>
+                    <strong>${formatCurrency(totalBillableAmount)}</strong>
                   </td>
                   <td></td>
                 </tr>
@@ -350,73 +364,70 @@ const tabContent: Record<string, () => TabContentConfig> = {
           </div>
         `}
       `,
-    handlers: {
-      onMount: (element) => {
-        const addTimeEntryBtn = element.querySelector('[data-action="addTimeEntry"]') as HandlerButton;
-        if (addTimeEntryBtn) addTimeEntryBtn.addEventListener('click', handleTimeEntryClick);
-        
-        // Setup edit entry buttons
-        const editButtons = element.querySelectorAll('[data-action="editEntry"]') as NodeListOf<HandlerButton>;
-        editButtons.forEach(btn => {
-          const entryId = btn.getAttribute('data-entry-id');
-          const entry = ticketEntries.find(e => e.id === entryId);
-          if (entry) {
-            btn.addEventListener('click', () => handleTimeEntryEdit(entry));
-          }
-        });
-        
-        return () => {
-          if (addTimeEntryBtn) addTimeEntryBtn.removeEventListener('click', handleTimeEntryClick);
+      handlers: {
+        onMount: (element) => {
+          const addTimeEntryBtn = element.querySelector('[data-action="addTimeEntry"]') as HandlerButton;
+          if (addTimeEntryBtn) addTimeEntryBtn.addEventListener('click', handleTimeEntryClick);
+          
+          // Setup edit entry buttons
+          const editButtons = element.querySelectorAll('[data-action="editEntry"]') as NodeListOf<HandlerButton>;
           editButtons.forEach(btn => {
             const entryId = btn.getAttribute('data-entry-id');
             const entry = ticketEntries.find(e => e.id === entryId);
             if (entry) {
-              btn.removeEventListener('click', () => handleTimeEntryEdit(entry));
-            }
-          });
-        };
-      }
-    }
-  }),
-  notes: () => ({
-    component: GlassCard,
-    props: {
-      className: "p-6"
-    },
-    content: `
-        <div class="flex items-center gap-3 mb-6">
-          <span class="h-5 w-5 text-blue-400">💬</span>
-          <h2 class="text-xl font-semibold">Notes & Comments</h2>
-        </div>
-        <div id="notes-container"></div>
-      `,
-    handlers: {
-      onMount: (element) => {
-        const notesContainer = element.querySelector('#notes-container') as HandlerElement;
-        
-        if (notesContainer) {
-          // Create the TicketNotes component and append it to the container
-          const notesComponent = new TicketNotes({
-            target: notesContainer,
-            props: {
-              ticketId,
-              userId: currentUser?.id || '',
-              showInternalNotes: $userPermissions.canViewInternalNotes
+              btn.addEventListener('click', () => handleTimeEntryEdit(entry));
             }
           });
           
           return () => {
-            if (notesComponent && notesComponent.$destroy) {
-              notesComponent.$destroy();
-            }
+            if (addTimeEntryBtn) addTimeEntryBtn.removeEventListener('click', handleTimeEntryClick);
+            editButtons.forEach(btn => {
+              const entryId = btn.getAttribute('data-entry-id');
+              const entry = ticketEntries.find(e => e.id === entryId);
+              if (entry) {
+                btn.removeEventListener('click', () => handleTimeEntryEdit(entry));
+              }
+            });
           };
         }
-        
-        return () => {};
       }
-    }
-  })
-};
+    }),
+    notes: () => ({
+      component: GlassCard,
+      props: { className: "p-6" },
+      content: `
+        <div class="flex items-center gap-3 mb-6">
+          <Icon src={ChatBubbleLeftRight} class="h-5 w-5 text-blue-400" />
+          <h2 class="text-xl font-semibold">Notes & Comments</h2>
+        </div>
+        <div id="notes-container"></div>
+      `,
+      handlers: {
+        onMount: (element) => {
+          const notesContainer = element.querySelector('#notes-container') as HandlerElement;
+          
+          if (notesContainer && currentUser?.id) {
+            const notesComponent = new TicketNotes({
+              target: notesContainer,
+              props: {
+                ticketId,
+                userId: currentUser.id,
+                showInternalNotes: $userPermissions.canViewInternalNotes
+              }
+            });
+            
+            return () => {
+              if (notesComponent && notesComponent.$destroy) {
+                notesComponent.$destroy();
+              }
+            };
+          }
+          
+          return () => {};
+        }
+      }
+    })
+  };
 </script>
 
 <div class="container mx-auto px-4 py-8 pb-20 space-y-6">
@@ -429,14 +440,30 @@ const tabContent: Record<string, () => TabContentConfig> = {
     <span>Back to Tickets</span>
   </a>
 
-  {#if ticket}
+  {#if error}
+    <GlassCard className="p-6 bg-red-500/20 border-red-400">
+      <p class="text-red-300">{error}</p>
+    </GlassCard>
+  {/if}
+
+  {#if isLoading}
+    <GlassCard className="p-6 text-center">
+      <span class="loading loading-spinner"></span>
+      <p class="mt-2 text-gray-400">Loading ticket...</p>
+    </GlassCard>
+  {:else if ticket}
     <!-- Header Card -->
     <GlassCard className="p-6">
       <div class="flex flex-col md:flex-row justify-between items-start gap-6">
         <!-- Left side - Title and metadata -->
         <div class="space-y-4">
           <div>
-            <h1 class="text-2xl font-bold">{ticket.title}</h1>
+            <h1 class="text-2xl font-bold">
+              {#if ticket.ticketNumber}
+                <span class="text-gray-400 mr-2">#{ticket.ticketNumber}</span>
+              {/if}
+              {ticket.title}
+            </h1>
             <div class="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-400">
               <div class="flex items-center gap-2">
                 <Icon src={UserIcon} class="h-4 w-4" />
@@ -497,7 +524,7 @@ const tabContent: Record<string, () => TabContentConfig> = {
     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
       <StatsCard
         title="Time Logged"
-        value={formatTime(totalHours)}
+        value={minutesToFormatted(totalMinutes)}
         icon={Clock}
         iconColor="blue"
       />

@@ -3,6 +3,7 @@
   import type { Client, NewClient, ClientType, NewBillingRateOverride, ClientBillingRateOverride } from '$lib/types';
   import { clientStore } from '$lib/stores/clientStore';
   import { formatCurrency } from '$lib/utils/invoiceUtils';
+  import { findParentByEmailDomain, getAvailableContainers } from '$lib/utils/clientUtils';
   
   const props = $props<{
     editClient: Client | null;
@@ -14,30 +15,45 @@
   const initialState: NewClient = {
     name: '',
     type: 'individual',
-    parentId: null
+    parentId: null,
+    description: '',
+    email: '',
+    phone: '',
+    address: '',
+    domains: [],
+    rate: 0
   };
 
   let form = writable<NewClient>(initialState);
-  
+  let domainInput = $state('');
+
+  // Update domain list
+  function addDomain() {
+    if (!domainInput) return;
+    $form.domains = [...($form.domains || []), domainInput];
+    domainInput = '';
+  }
+
+  function removeDomain(domain: string) {
+    $form.domains = ($form.domains || []).filter(d => d !== domain);
+  }
+
   $effect(() => {
     if (props.editClient) {
       form.set({
         name: props.editClient.name,
         type: props.editClient.type,
-        parentId: props.editClient.parentId
+        parentId: props.editClient.parentId,
+        description: props.editClient.description || '',
+        email: props.editClient.email || '',
+        phone: props.editClient.phone || '',
+        address: props.editClient.address || '',
+        domains: props.editClient.domains || [],
+        rate: props.editClient.rate || 0
       });
 
       const overrides: Record<string, NewBillingRateOverride> = {};
       const types: Record<string, 'percentage' | 'fixed' | ''> = {};
-      
-      // props.editClient.billingRateOverrides.forEach((override: ClientBillingRateOverride) => {
-      //   overrides[override.baseRateId] = {
-      //     baseRateId: override.baseRateId,
-      //     overrideType: override.overrideType,
-      //     value: override.value
-      //   };
-      //   types[override.baseRateId] = override.overrideType;
-      // });
       
       overrideForm.set(overrides);
       overrideTypes.set(types);
@@ -45,6 +61,16 @@
       form.set(initialState);
       overrideForm.set({});
       overrideTypes.set({});
+    }
+  });
+
+  // Effect to handle automatic parent assignment based on email
+  $effect(() => {
+    if ($form.type === 'individual' && $form.email && !$form.parentId) {
+      const potentialParent = findParentByEmailDomain($clientStore, $form.email);
+      if (potentialParent) {
+        $form.parentId = potentialParent.id;
+      }
     }
   });
 
@@ -64,6 +90,11 @@
     };
     return c.id !== props.editClient.id && !isDescendant(c.id);
   }));
+
+  // Get available containers for the current parent
+  const availableContainers = $derived(
+    $form.parentId ? getAvailableContainers($clientStore, $form.parentId) : []
+  );
   
   let overrideForm = writable<Record<string, NewBillingRateOverride | undefined>>({});
   let overrideTypes = writable<Record<string, 'percentage' | 'fixed' | ''>>({});
@@ -159,6 +190,87 @@
           {/each}
         </select>
         <span class="form-hint">Only business and container clients can be parent clients.</span>
+      </div>
+
+      <div class="form-group">
+        <label for="description" class="form-label">Description</label>
+        <textarea
+          id="description"
+          class="form-control"
+          bind:value={$form.description}
+        ></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="email" class="form-label">Email</label>
+        <input
+          id="email"
+          type="email"
+          class="form-control"
+          bind:value={$form.email}
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="phone" class="form-label">Phone</label>
+        <input
+          id="phone"
+          type="tel"
+          class="form-control"
+          bind:value={$form.phone}
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="address" class="form-label">Address</label>
+        <textarea
+          id="address"
+          class="form-control"
+          bind:value={$form.address}
+        ></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="rate" class="form-label">Rate</label>
+        <input
+          id="rate"
+          type="number"
+          class="form-control"
+          bind:value={$form.rate}
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="domains" class="form-label">Domains</label>
+        <div class="flex items-center space-x-2">
+          <input
+            id="domainInput"
+            type="text"
+            class="form-control"
+            bind:value={domainInput}
+          />
+          <button
+            type="button"
+            class="btn btn-secondary"
+            onclick={addDomain}
+          >
+            Add
+          </button>
+        </div>
+        <ul class="domain-list">
+          {#each $form.domains as domain}
+            <li class="domain-item">
+              {domain}
+              <button
+                type="button"
+                class="btn btn-danger btn-sm"
+                onclick={() => removeDomain(domain)}
+              >
+                Remove
+              </button>
+            </li>
+          {/each}
+        </ul>
       </div>
     </div>
     

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { writable } from 'svelte/store';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { clientStore } from '$lib/stores/clientStore';
   import { settingsStore } from '$lib/stores/settingsStore';
   import { timeEntryStore } from '$lib/stores/timeEntryStore';
@@ -61,36 +61,30 @@
   
   // Auto-select default billing rate when needed
   $effect(() => {
-    // Only proceed if entry is billable and no rate is selected
+    // Only proceed if entry is billable, no rate is selected, and rates are available
     if ($form.billable && !$form.billingRateId && availableBillingRates.length > 0) {
-      // First try to find the default rate
+      let selectedRateId = null;
+
+      // Try to find the default rate
       const defaultRate = availableBillingRates.find(rate => rate.isDefault);
-      
-      // If client has overrides, try to find an override for the default rate first
-      if (selectedClient?.billingRateOverrides?.length) {
-        if (defaultRate && selectedClient.billingRateOverrides.some(o => o.baseRateId === defaultRate.id)) {
-          form.update(f => ({ ...f, billingRateId: defaultRate.id }));
-          return;
-        }
-        
-        // If no override for default rate, try any rate with an override
-        const rateWithOverride = availableBillingRates.find(rate => 
-          selectedClient.billingRateOverrides.some(o => o.baseRateId === rate.id)
-        );
-        if (rateWithOverride) {
-          form.update(f => ({ ...f, billingRateId: rateWithOverride.id }));
-          return;
+
+      // Check for client-specific override if client is selected
+      if (selectedClient?.billingRateOverrides?.length && defaultRate) {
+        const override = selectedClient.billingRateOverrides.find(o => o.baseRateId === defaultRate.id);
+        if (override) {
+          selectedRateId = defaultRate.id;
         }
       }
-      
-      // If we found a default rate earlier, use it
-      if (defaultRate) {
-        form.update(f => ({ ...f, billingRateId: defaultRate.id }));
-        return;
+
+      // Fallback to default rate or first available rate
+      if (!selectedRateId) {
+        selectedRateId = defaultRate?.id || availableBillingRates[0].id;
       }
-      
-      // Last resort: select the first available rate
-      form.update(f => ({ ...f, billingRateId: availableBillingRates[0].id }));
+
+      // Update form only if a valid rate is found
+      if (selectedRateId) {
+        form.update(f => ({ ...f, billingRateId: selectedRateId }));
+      }
     }
   });
 
@@ -101,7 +95,11 @@
 
     settingsStore.load();
     ticketStore.load(); // Load tickets so they're available for selection
-    return unsubscribe;
+    document.addEventListener('keydown', handleKeydown);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('keydown', handleKeydown);
+    };
   });
 
   function formatDateForInput(date: Date): string {
@@ -279,18 +277,8 @@
       return;
     }
 
-    if (!$form.minutes || $form.minutes <= 0) {
-      alert('Please enter a valid duration');
-      return;
-    }
-
-    if ($form.billable && !$form.billingRateId) {
-      alert('Please select a billing rate');
-      return;
-    }
-    
     try {
-      // Create a clean copy of the form data with proper types
+      // First save the current entry
       const formData: NewTimeEntry = {
         description: $form.description,
         startTime: new Date($form.startTime),
@@ -306,30 +294,40 @@
         billedRate: undefined
       };
       
-      const result = await timeEntryStore.add(formData);
+      const savedEntry = props.editEntry 
+        ? await timeEntryStore.update(props.editEntry.id, formData)
+        : await timeEntryStore.add(formData);
+
+      if (props.onSave) {
+        props.onSave(savedEntry);
+      }
+
+      // Use the end time of the saved entry as the start time for the new entry
+      const newStartTime = savedEntry.endTime || new Date();
       
       // Save the current values we want to keep
       const clientId = $form.clientId || '';
       const billable = $form.billable;
       const billingRateId = $form.billingRateId;
       
-      // Reset form but keep some fields
+      // Reset form but keep selected fields and use the new start time
       form.set({
         ...initialState,
         clientId,
         billable,
         billingRateId,
-        startTime: new Date(),
-        endTime: null,
-        date: new Date()
+        startTime: newStartTime,
+        date: new Date(newStartTime),
+        endTime: null
       });
 
       durationInput = '';
       endTimeInput = '';
       
-      if (props.onSave) {
-        props.onSave(result);
-      }
+      // Focus the description field for the new entry
+      requestAnimationFrame(() => {
+        document.getElementById('description')?.focus();
+      });
     } catch (err) {
       console.error('Failed to save time entry:', err);
       alert('Failed to save time entry. Please try again.');
@@ -340,6 +338,20 @@
     form.set(initialState);
     if (props.onCancel) {
       props.onCancel();
+    }
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter') {
+      if (event.altKey) {
+        // Alt+Enter for Add and Create New
+        event.preventDefault();
+        handleSubmitAndCreateNew(event);
+      } else if (event.ctrlKey || event.metaKey) {
+        // Ctrl/Cmd+Enter for normal submit
+        event.preventDefault();
+        handleSubmit(event);
+      }
     }
   }
 </script>
@@ -363,7 +375,10 @@
   <form onsubmit={handleSubmit}>
     <!-- Description field - full width -->
     <div class="form-field mb-4">
-      <label for="description" class="form-label">Description</label>
+      <label for="description" class="form-label">
+        Description
+        <span class="text-xs text-gray-500 ml-2">Press Alt+Enter to save and create new, Ctrl+Enter to save</span>
+      </label>
       <textarea 
         id="description"
         class="form-textarea w-full"

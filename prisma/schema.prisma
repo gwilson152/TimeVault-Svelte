@@ -43,11 +43,16 @@ model User {
 model Client {
   id                   String                      @id @default(uuid())
   name                 String
-  rate                 Float
+  description          String?
+  email                String?
+  phone                String?
+  address              String?
+  domains              String[]                    @default([]) // For business/container clients
   type                 String                      @default("business") // "business" | "container" | "individual"
   parentId             String?
   parent               Client?                     @relation("ClientHierarchy", fields: [parentId], references: [id])
   children             Client[]                    @relation("ClientHierarchy")
+  rate                 Float
   createdAt            DateTime                    @default(now())
   updatedAt            DateTime                    @updatedAt
   timeEntries          TimeEntry[]
@@ -151,6 +156,7 @@ model TicketAddon {
 
 model Ticket {
   id          String        @id @default(cuid())
+  ticketNumber String?      @unique // External ticket reference number
   title       String
   description String?
   statusId    String        @default("open")
@@ -165,6 +171,7 @@ model Ticket {
 
   @@index([clientId])
   @@index([statusId])
+  @@map("tickets")
 }
 
 // New model for ticket notes

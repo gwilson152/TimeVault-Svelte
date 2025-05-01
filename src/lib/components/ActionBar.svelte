@@ -21,7 +21,7 @@
 </script>
 
 <!-- Bottom Action Bar -->
-<div class="fixed bottom-2 sm:bottom-4 left-0 right-0 flex justify-center pointer-events-none z-50">
+<div class="fixed bottom-2 sm:bottom-4 left-0 right-0 flex justify-center pointer-events-none z-10">
   <div
     class="container-glass w-fit rounded-md p-0.5 sm:p-1 flex justify-center transition-all duration-300 ease-in-out relative pointer-events-auto"
     class:flash={flashTrigger}
@@ -30,7 +30,7 @@
       <!-- Theme toggle button -->
       <button
         class="group relative p-1 sm:p-2 hover:text-accentBlue transition-all duration-100 ease-in-out hover:scale-110 hover:shadow-[0_0_8px_rgba(59,130,246,0.5)] flex flex-col items-center"
-        onclick={toggleTheme}
+        on:click={toggleTheme}
         aria-label={currentTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
       >
         {#if currentTheme === 'dark'}

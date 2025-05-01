@@ -86,10 +86,16 @@ export interface NewBillingRate {
 export interface Client {
   id: string;
   name: string;
+  description?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  domains: string[];
   type: ClientType;
   parentId: string | null;
-  children: Client[];
-  billingRateOverrides: ClientBillingRateOverride[];
+  rate: number;
+  children?: Client[];
+  billingRateOverrides?: ClientBillingRateOverride[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -128,8 +134,9 @@ export interface TimeEntryWithClient extends TimeEntry {
   };
 }
 
-export type NewClient = Omit<Client, 'id' | 'children' | 'billingRateOverrides' | 'createdAt' | 'updatedAt'> & {
+export type NewClient = Omit<Client, 'id' | 'children' | 'billingRateOverrides' | 'createdAt' | 'updatedAt' | 'domains'> & {
   billingRateOverrides?: NewBillingRateOverride[];
+  domains?: string[];
 };
 
 export interface NewBillingRateOverride {

@@ -22,21 +22,43 @@ function createTimeEntryStore(): TimeEntryStore {
   const { subscribe, set, update } = baseTimeEntryStore;
   let initialized = false;
 
-  function logDebug(action: string, data?: any) {
-    console.debug(`⏱️ TimeEntryStore [${action}]`, data || '');
-  }
-
   function formatTimeEntry(entry: TimeEntry): TimeEntry {
     // Ensure we have properly formatted dates
-    const startTime = entry.startTime ? new Date(entry.startTime) : new Date();
-    const endTime = entry.endTime ? new Date(entry.endTime) : null;
+    const startTime = entry.startTime && (typeof entry.startTime === 'string' || entry.startTime instanceof Date)
+      ? new Date(entry.startTime)
+      : new Date();
+    if (isNaN(startTime.getTime())) {
+      console.warn('Invalid startTime:', { id: entry.id, startTime: entry.startTime, type: typeof entry.startTime });
+      startTime.setTime(new Date().getTime());
+    }
+    const endTime = entry.endTime && (typeof entry.endTime === 'string' || entry.endTime instanceof Date)
+      ? new Date(entry.endTime)
+      : null;
+    if (endTime && isNaN(endTime.getTime())) {
+      console.warn('Invalid endTime:', { id: entry.id, endTime: entry.endTime, type: typeof entry.endTime });
+      return {
+        ...entry,
+        startTime,
+        endTime: null,
+        minutes: entry.minutes || 0,
+        date: entry.date ? new Date(entry.date) : startTime
+      };
+    }
     const minutes = entry.minutes || (endTime ? calculateDurationInMinutes(startTime, endTime) : 0);
+    const date = entry.date && (typeof entry.date === 'string' || entry.date instanceof Date)
+      ? new Date(entry.date)
+      : startTime;
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date:', { id: entry.id, date: entry.date, type: typeof entry.date });
+      date.setTime(startTime.getTime());
+    }
 
-    logDebug('formatTimeEntry', { 
+    console.log('TimeEntryStore formatTimeEntry:', { 
       id: entry.id,
       startTime,
       endTime,
-      minutes
+      minutes,
+      date
     });
 
     return {
@@ -44,7 +66,7 @@ function createTimeEntryStore(): TimeEntryStore {
       startTime,
       endTime,
       minutes,
-      date: entry.date ? new Date(entry.date) : startTime
+      date
     };
   }
 
@@ -52,24 +74,23 @@ function createTimeEntryStore(): TimeEntryStore {
     subscribe,
 
     async load() {
-      logDebug('load:start', { initialized });
+      console.log('TimeEntryStore load:start', { initialized });
       if (initialized) return;
 
       try {
         const entries = await api.getTimeEntries();
-        logDebug('load:success', { entryCount: entries.length });
+        console.log('TimeEntryStore load:success', { entryCount: entries.length });
         set(entries.map(formatTimeEntry));
         initialized = true;
       } catch (error) {
-        logDebug('load:error', error);
-        console.error('Failed to load time entries:', error);
+        console.error('TimeEntryStore load:error', error);
         set([]);
         throw error;
       }
     },
 
     async add(entry: NewTimeEntry) {
-      logDebug('add:start', { 
+      console.log('TimeEntryStore add:start', { 
         description: entry.description,
         clientId: entry.clientId,
         minutes: entry.minutes 
@@ -79,11 +100,31 @@ function createTimeEntryStore(): TimeEntryStore {
         // Ensure all date fields are proper Date objects
         const formattedEntry = {
           ...entry,
-          startTime: entry.startTime instanceof Date ? entry.startTime : new Date(entry.startTime || new Date()),
-          endTime: entry.endTime ? (entry.endTime instanceof Date ? entry.endTime : new Date(entry.endTime)) : null,
+          startTime: entry.startTime && (typeof entry.startTime === 'string' || entry.startTime instanceof Date)
+            ? new Date(entry.startTime)
+            : new Date(),
+          endTime: entry.endTime && (typeof entry.endTime === 'string' || entry.endTime instanceof Date)
+            ? new Date(entry.endTime)
+            : null,
           minutes: entry.minutes || 0,
-          date: entry.date instanceof Date ? entry.date : new Date(entry.date || new Date())
+          date: entry.date && (typeof entry.date === 'string' || entry.date instanceof Date)
+            ? new Date(entry.date)
+            : new Date()
         };
+
+        // Validate dates
+        if (isNaN(formattedEntry.startTime.getTime())) {
+          console.warn('Invalid startTime in add:', formattedEntry.startTime);
+          formattedEntry.startTime = new Date();
+        }
+        if (formattedEntry.endTime && isNaN(formattedEntry.endTime.getTime())) {
+          console.warn('Invalid endTime in add:', formattedEntry.endTime);
+          formattedEntry.endTime = null;
+        }
+        if (isNaN(formattedEntry.date.getTime())) {
+          console.warn('Invalid date in add:', formattedEntry.date);
+          formattedEntry.date = formattedEntry.startTime;
+        }
 
         // Calculate minutes or end time if needed
         if (!formattedEntry.minutes && formattedEntry.endTime) {
@@ -92,7 +133,7 @@ function createTimeEntryStore(): TimeEntryStore {
           formattedEntry.endTime = calculateEndTime(formattedEntry.startTime, formattedEntry.minutes);
         }
 
-        logDebug('add:formatted', {
+        console.log('TimeEntryStore add:formatted', {
           ...formattedEntry,
           startTime: formattedEntry.startTime instanceof Date ? 'Date object' : typeof formattedEntry.startTime,
           endTime: formattedEntry.endTime instanceof Date ? 'Date object' : typeof formattedEntry.endTime,
@@ -100,18 +141,17 @@ function createTimeEntryStore(): TimeEntryStore {
         });
 
         const newEntry = await api.createTimeEntry(formattedEntry);
-        logDebug('add:success', { id: newEntry.id });
+        console.log('TimeEntryStore add:success', { id: newEntry.id });
         update(entries => [...entries, formatTimeEntry(newEntry)]);
         return newEntry;
       } catch (error) {
-        logDebug('add:error', error);
-        console.error('Failed to add time entry:', error);
+        console.error('TimeEntryStore add:error', error);
         throw error;
       }
     },
 
     async update(id: string, entry: Partial<NewTimeEntry>) {
-      logDebug('update:start', { id, changes: entry });
+      console.log('TimeEntryStore update:start', { id, changes: entry });
       try {
         // Get the current entry to check if it's locked
         let entries: TimeEntry[] = [];
@@ -124,33 +164,62 @@ function createTimeEntryStore(): TimeEntryStore {
         // Prevent updates to locked or billed entries
         if (currentEntry && (currentEntry.locked || currentEntry.billed)) {
           const errorMessage = 'Cannot update a locked time entry. This entry is associated with an invoice.';
-          logDebug('update:error', errorMessage);
+          console.error('TimeEntryStore update:error', errorMessage);
           throw new Error(errorMessage);
         }
 
         let updatedFields: Partial<NewTimeEntry> = { ...entry };
 
+        // Validate date fields
+        if (updatedFields.startTime) {
+          updatedFields.startTime = updatedFields.startTime && (typeof updatedFields.startTime === 'string' || updatedFields.startTime instanceof Date)
+            ? new Date(updatedFields.startTime)
+            : new Date();
+          if (isNaN(updatedFields.startTime.getTime())) {
+            console.warn('Invalid startTime in update:', updatedFields.startTime);
+            updatedFields.startTime = new Date();
+          }
+        }
+        if (updatedFields.endTime) {
+          updatedFields.endTime = updatedFields.endTime && (typeof updatedFields.endTime === 'string' || updatedFields.endTime instanceof Date)
+            ? new Date(updatedFields.endTime)
+            : null;
+          if (updatedFields.endTime && isNaN(updatedFields.endTime.getTime())) {
+            console.warn('Invalid endTime in update:', updatedFields.endTime);
+            updatedFields.endTime = null;
+          }
+        }
+        if (updatedFields.date) {
+          updatedFields.date = updatedFields.date && (typeof updatedFields.date === 'string' || updatedFields.date instanceof Date)
+            ? new Date(updatedFields.date)
+            : new Date();
+          if (isNaN(updatedFields.date.getTime())) {
+            console.warn('Invalid date in update:', updatedFields.date);
+            updatedFields.date = updatedFields.startTime || new Date();
+          }
+        }
+
         // If we have both start and end time, calculate minutes
-        if (entry.startTime && entry.endTime) {
-          updatedFields.minutes = calculateDurationInMinutes(entry.startTime, entry.endTime);
-          logDebug('update:calculatedminutes', { 
+        if (updatedFields.startTime && updatedFields.endTime) {
+          updatedFields.minutes = calculateDurationInMinutes(updatedFields.startTime, updatedFields.endTime);
+          console.log('TimeEntryStore update:calculatedminutes', { 
             minutes: updatedFields.minutes,
-            startTime: entry.startTime,
-            endTime: entry.endTime
+            startTime: updatedFields.startTime,
+            endTime: updatedFields.endTime
           });
         }
         // If we have start time and minutes, calculate end time
-        else if (entry.startTime && entry.minutes) {
-          updatedFields.endTime = calculateEndTime(entry.startTime, entry.minutes);
-          logDebug('update:calculatedEndTime', {
+        else if (updatedFields.startTime && updatedFields.minutes) {
+          updatedFields.endTime = calculateEndTime(updatedFields.startTime, updatedFields.minutes);
+          console.log('TimeEntryStore update:calculatedEndTime', {
             endTime: updatedFields.endTime,
-            startTime: entry.startTime,
-            minutes: entry.minutes
+            startTime: updatedFields.startTime,
+            minutes: updatedFields.minutes
           });
         }
 
         const updatedEntry = await api.updateTimeEntry(id, updatedFields);
-        logDebug('update:success', { id });
+        console.log('TimeEntryStore update:success', { id });
 
         update(entries => entries.map(e =>
           e.id === id ? formatTimeEntry(updatedEntry) : e
@@ -158,14 +227,13 @@ function createTimeEntryStore(): TimeEntryStore {
 
         return updatedEntry;
       } catch (error) {
-        logDebug('update:error', error);
-        console.error('Failed to update time entry:', error);
+        console.error('TimeEntryStore update:error', error);
         throw error;
       }
     },
 
     async remove(id: string) {
-      logDebug('remove:start', { id });
+      console.log('TimeEntryStore remove:start', { id });
       try {
         // Get the current entry to check if it's locked
         let entries: TimeEntry[] = [];
@@ -178,22 +246,21 @@ function createTimeEntryStore(): TimeEntryStore {
         // Prevent deletion of locked or billed entries
         if (currentEntry && (currentEntry.locked || currentEntry.billed)) {
           const errorMessage = 'Cannot delete a locked time entry. This entry is associated with an invoice.';
-          logDebug('remove:error', errorMessage);
+          console.error('TimeEntryStore remove:error', errorMessage);
           throw new Error(errorMessage);
         }
         
         await api.deleteTimeEntry(id);
-        logDebug('remove:success', { id });
+        console.log('TimeEntryStore remove:success', { id });
         update(entries => entries.filter(e => e.id !== id));
       } catch (error) {
-        logDebug('remove:error', error);
-        console.error('Failed to delete time entry:', error);
+        console.error('TimeEntryStore remove:error', error);
         throw error;
       }
     },
 
     async markAsBilled(entryIds: string[]) {
-      logDebug('markAsBilled:start', { count: entryIds.length });
+      console.log('TimeEntryStore markAsBilled:start', { count: entryIds.length });
       try {
         await Promise.all(entryIds.map(id =>
           api.updateTimeEntry(id, { 
@@ -202,21 +269,20 @@ function createTimeEntryStore(): TimeEntryStore {
           })
         ));
 
-        logDebug('markAsBilled:success', { entryIds });
+        console.log('TimeEntryStore markAsBilled:success', { entryIds });
         update(entries => entries.map(entry =>
           entryIds.includes(entry.id)
             ? { ...entry, billed: true, locked: true }
             : entry
         ));
       } catch (error) {
-        logDebug('markAsBilled:error', error);
-        console.error('Failed to mark entries as billed:', error);
+        console.error('TimeEntryStore markAsBilled:error', error);
         throw error;
       }
     },
 
     getByClientId(clientId: string) {
-      logDebug('getByClientId:start', { clientId });
+      console.log('TimeEntryStore getByClientId:start', { clientId });
       let entries: TimeEntry[] = [];
       store.subscribe(value => {
         entries = value;
@@ -225,7 +291,7 @@ function createTimeEntryStore(): TimeEntryStore {
       const filtered = entries.filter(entry => 
         entry.clientId === clientId && entry.billable && !entry.billed
       );
-      logDebug('getByClientId:complete', { 
+      console.log('TimeEntryStore getByClientId:complete', { 
         clientId, 
         entriesFound: filtered.length 
       });
@@ -233,7 +299,7 @@ function createTimeEntryStore(): TimeEntryStore {
     },
 
     getUnbilledByClientId(clientId: string, includeSubClients = true) {
-      logDebug('getUnbilledByClientId:start', { 
+      console.log('TimeEntryStore getUnbilledByClientId:start', { 
         clientId, 
         includeSubClients 
       });
@@ -255,7 +321,7 @@ function createTimeEntryStore(): TimeEntryStore {
         !entry.billed
       );
 
-      logDebug('getUnbilledByClientId:complete', { 
+      console.log('TimeEntryStore getUnbilledByClientId:complete', { 
         clientId,
         totalEntries: filtered.length,
         clientCount: clientIds.length
@@ -265,7 +331,7 @@ function createTimeEntryStore(): TimeEntryStore {
     },
 
     reset() {
-      logDebug('reset');
+      console.log('TimeEntryStore reset');
       set([]);
       initialized = false;
     }

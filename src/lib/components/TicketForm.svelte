@@ -19,12 +19,56 @@
     title: '',
     description: '',
     statusId: '',
-    clientId: ''
+    clientId: '',
+    ticketNumber: null
   };
 
   let form = writable<NewTicket>(initialState);
   let errors = $state<{[key: string]: string}>({});
   let isSubmitting = $state(false);
+  let suggestedTicketNumber = $state<string | null>(null);
+  let clientFilter = $state('');
+  
+  const filteredClientsHierarchy = $derived(() => {
+    const searchTerm = clientFilter.toLowerCase();
+    const matches = new Set();
+    
+    // First pass: find direct matches
+    $clientStore.forEach(client => {
+      if (client.name.toLowerCase().includes(searchTerm)) {
+        matches.add(client.id);
+        // Add parents to keep hierarchy
+        let parent = $clientStore.find(c => c.id === client.parentId);
+        while (parent) {
+          matches.add(parent.id);
+          parent = $clientStore.find(c => c.id === parent.parentId);
+        }
+      }
+    });
+
+    return $clientStore
+      .filter(c => c.type === 'business')
+      .map(business => ({
+        ...business,
+        children: $clientStore
+          .filter(c => c.parentId === business.id && c.type === 'container')
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(container => ({
+            ...container,
+            children: $clientStore
+              .filter(c => c.parentId === container.id)
+              .sort((a, b) => a.name.localeCompare(b.name))
+          }))
+      }))
+      .filter(business => 
+        matches.size === 0 || 
+        matches.has(business.id) ||
+        business.children.some(container => 
+          matches.has(container.id) ||
+          container.children.some(individual => matches.has(individual.id))
+        )
+      );
+  });
   
   // Subscribe to ticket statuses from settings store
   const { ticketSettings } = settingsStore;
@@ -36,7 +80,8 @@
         title: props.editTicket.title,
         description: props.editTicket.description || '',
         statusId: props.editTicket.statusId,
-        clientId: props.editTicket.clientId
+        clientId: props.editTicket.clientId,
+        ticketNumber: props.editTicket.ticketNumber || null
       });
     }
   });
@@ -62,6 +107,10 @@
       newErrors.statusId = 'Status is required';
     }
     
+    if ($form.ticketNumber && !/^\d+$/.test($form.ticketNumber)) {
+      newErrors.ticketNumber = 'Ticket number must be a number';
+    }
+    
     errors = newErrors;
     return Object.keys(newErrors).length === 0;
   }
@@ -79,12 +128,23 @@
     try {
       let ticket: Ticket;
       
+      // If no ticket number is provided, use the next available one
+      if (!$form.ticketNumber && suggestedTicketNumber) {
+        form.update(f => ({ ...f, ticketNumber: suggestedTicketNumber }));
+      }
+      
       if (props.editTicket) {
         // Update existing ticket
         ticket = await ticketStore.update(props.editTicket.id, $form);
       } else {
         // Create new ticket
         ticket = await ticketStore.add($form as NewTicket);
+      }
+      
+      // Increment next ticket number if we used the suggested one
+      if ($form.ticketNumber === suggestedTicketNumber) {
+        const nextNumber = (parseInt(suggestedTicketNumber || '0') + 1).toString();
+        await settingsStore.updateSetting('next_ticket_number', nextNumber);
       }
       
       // Reset form
@@ -112,22 +172,40 @@
   }
 
   // Load required data
-  onMount(() => {
-    clientStore.load();
-    settingsStore.loadTicketStatuses();
-    
-    // Set default status ID if no ticket is being edited
-    if (!props.editTicket) {
-      const unsubscribe = ticketSettings.subscribe(settings => {
-        if (settings.statuses) {
-          const defaultStatus = settings.statuses.find(s => s.isDefault);
-          if (defaultStatus && !$form.statusId) {
-            form.update(f => ({ ...f, statusId: defaultStatus.id }));
-          }
-        }
-      });
+  onMount(async () => {
+    try {
+      // Load all required data in parallel
+      await Promise.all([
+        clientStore.load(),
+        settingsStore.loadTicketStatuses()
+      ]);
       
-      return unsubscribe;
+      // Get next ticket number from settings if creating new ticket
+      if (!props.editTicket) {
+        const settings = await settingsStore.load() || [];
+        const nextTicketSetting = settings.find(s => s.key === 'next_ticket_number');
+        if (nextTicketSetting?.value) {
+          suggestedTicketNumber = nextTicketSetting.value;
+          form.update(f => ({ ...f, ticketNumber: nextTicketSetting.value }));
+        }
+      }
+      
+      // Set default status ID if no ticket is being edited
+      if (!props.editTicket) {
+        const unsubscribe = ticketSettings.subscribe(settings => {
+          if (settings?.statuses?.length) {
+            const defaultStatus = settings.statuses.find(s => s.isDefault);
+            if (defaultStatus && !$form.statusId) {
+              form.update(f => ({ ...f, statusId: defaultStatus.id }));
+            }
+          }
+        });
+        
+        return unsubscribe;
+      }
+    } catch (err) {
+      console.error('Failed to load form data:', err);
+      errors.form = err instanceof Error ? err.message : 'Failed to load form data';
     }
   });
 </script>
@@ -153,33 +231,67 @@
     {/if}
   </div>
 
+  <!-- Ticket Number field -->
+  <div class="form-field">
+    <label for="ticketNumber" class="form-label">
+      Ticket Number
+      {#if !props.editTicket && suggestedTicketNumber}
+        <span class="text-sm text-gray-400">(Next available: #{suggestedTicketNumber})</span>
+      {/if}
+    </label>
+    <input
+      id="ticketNumber"
+      type="text"
+      bind:value={$form.ticketNumber}
+      class="form-input {errors.ticketNumber ? 'border-red-500' : ''}"
+      placeholder={!props.editTicket && suggestedTicketNumber ? `Enter ticket number (suggested: ${suggestedTicketNumber})` : "Enter ticket number (optional)"}
+    />
+    {#if errors.ticketNumber}
+      <span class="form-error mt-1">{errors.ticketNumber}</span>
+    {:else}
+      <span class="form-hint">Leave empty to use the next available number</span>
+    {/if}
+  </div>
+
   <!-- Client field -->
   <div class="form-field">
     <label for="clientId" class="form-label">Client</label>
-    <select
-      id="clientId"
-      bind:value={$form.clientId}
-      class="form-select {errors.clientId ? 'border-red-500' : ''}"
-    >
-      <option value="">Select a client</option>
-      {#each $clientStore as client}
-        <option value={client.id}>
-          {client.name} 
-          {#if client.type === 'business'}
-            (Business)
-          {:else if client.type === 'container'}
-            (Container)
-          {:else}
-            (Individual)
-          {/if}
-        </option>
-      {/each}
-    </select>
+    <div class="relative">
+      <input
+        type="text"
+        class="form-input mb-2"
+        placeholder="Filter clients..."
+        bind:value={clientFilter}
+      />
+      <select
+        id="clientId"
+        bind:value={$form.clientId}
+        class="form-select {errors.clientId ? 'border-red-500' : ''}"
+        size="6"
+      >
+        <option value="">Select a client</option>
+        {#each filteredClientsHierarchy as business}
+          <option value={business.id} class="font-semibold text-blue-400">
+            {business.name}
+          </option>
+          {#each business.children as container}
+            <option value={container.id} class="pl-4 font-medium text-amber-400">
+              ↳ {container.name}
+            </option>
+            {#each container.children as individual}
+              <option value={individual.id} class="pl-8 text-green-400">
+                ↳ {individual.name}
+              </option>
+            {/each}
+          {/each}
+        {/each}
+      </select>
+    </div>
     {#if errors.clientId}
       <span class="form-error mt-1">{errors.clientId}</span>
     {:else}
       <span class="form-hint mt-1">
-        <div class="flex flex-wrap gap-2 mt-1">
+        <div class="flex flex-wrap gap-2">
           <span class="flex items-center gap-1 text-xs">
             <Icon src={BuildingOffice} class="h-3 w-3 text-blue-500" />
             Business

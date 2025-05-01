@@ -1,6 +1,6 @@
 import { writable, derived, type Readable } from 'svelte/store';
 import type { Settings, TicketStatus, BillingRate, NewBillingRate } from '$lib/types';
-import { getSettings, getTicketStatuses, createTicketStatus, updateTicketStatus, deleteTicketStatus, getBillingRates, createBillingRate, updateBillingRate, deleteBillingRate } from '$lib/services/api';
+import { getSettings, getTicketStatuses, createTicketStatus, updateTicketStatus, deleteTicketStatus, getBillingRates, createBillingRate, updateBillingRate, deleteBillingRate, updateSetting } from '$lib/services/api';
 
 interface TicketSettings {
   statuses: TicketStatus[];
@@ -23,6 +23,7 @@ interface SettingsStore extends Readable<Settings[]> {
   createBillingRate: (rate: NewBillingRate) => Promise<BillingRate>;
   updateBillingRate: (id: string, rate: Partial<BillingRate>) => Promise<BillingRate>;
   deleteBillingRate: (id: string) => Promise<void>;
+  updateSetting: (key: string, value: string) => Promise<Settings>;
 }
 
 function createSettingsStore(): SettingsStore {
@@ -58,6 +59,19 @@ function createSettingsStore(): SettingsStore {
     ticketSettings,
     billingRates: {
       subscribe: billingRates.subscribe,
+    },
+
+    async updateSetting(key: string, value: string) {
+      logDebug('updateSetting:start', { key, value });
+      try {
+        const updated = await updateSetting(key, { value });
+        logDebug('updateSetting:success', { key, value });
+        update(settings => settings.map(s => s.key === key ? { ...s, value } : s));
+        return updated;
+      } catch (error) {
+        logDebug('updateSetting:error', error);
+        throw error;
+      }
     },
 
     async load() {

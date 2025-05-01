@@ -24,6 +24,12 @@
   // Define DataTable columns
   const columns = [
     {
+      key: 'ticketNumber',
+      title: '#',
+      sortable: true,
+      formatter: (value) => value || '-'
+    },
+    {
       key: 'client.name',
       title: 'Client',
       sortable: true,

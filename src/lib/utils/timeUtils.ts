@@ -95,3 +95,13 @@ export function calculateEndTime(start: Date, minutes: number): Date {
   end.setTime(end.getTime() + (minutes * 60 * 1000));
   return end;
 }
+
+/**
+ * Format a Date object or time string to display time in 24h format (HH:MM)
+ * @param date A Date object or string to format
+ * @returns Formatted time string in 24h format (HH:MM)
+ */
+export function formatTime(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}

@@ -1,0 +1,134 @@
+@layer components {
+  /* Base modal styles */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    overflow-y: auto;
+    background-color: transparent;
+  }
+
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(229 229 229 / 0.19);
+    backdrop-filter: blur(4px);
+  }
+
+  .modal-container {
+    position: relative;
+    background-color: var(--color-container-glass);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--color-border);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    z-index: 51;
+  }
+
+  /* Size variants */
+  .modal-sm {
+    max-width: 24rem; /* max-w-sm */
+  }
+
+  .modal-md {
+    max-width: 28rem; /* max-w-md */
+  }
+
+  .modal-lg {
+    max-width: 32rem; /* max-w-lg */
+  }
+
+  .modal-xl {
+    max-width: 36rem; /* max-w-xl */
+  }
+
+  .modal-full {
+    max-width: 56rem; /* max-w-4xl */
+  }
+
+  /* Layout variants */
+  .modal-default {
+    width: 90%;
+    margin: 1rem auto;
+    border-radius: 0.5rem;
+  }
+
+  .modal-drawer {
+    position: fixed;
+    right: 0;
+    top: 0;
+    height: 100%;
+    border-top-left-radius: 0.5rem;
+    border-bottom-left-radius: 0.5rem;
+  }
+
+  .modal-fullscreen {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  /* Header styles */
+  .modal-header {
+    border-bottom: 1px solid var(--color-border);
+    padding: 1rem 1.5rem;
+  }
+
+  .modal-title {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: var(--color-text-default);
+  }
+
+  .modal-close {
+    padding: 0.5rem;
+    border-radius: 9999px;
+    transition: background-color 150ms;
+  }
+
+  .modal-close:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  /* Content styles */
+  .modal-content {
+    flex: 1;
+    overflow: auto;
+  }
+
+  /* Footer styles */
+  .modal-footer {
+    border-top: 1px solid var(--color-border);
+    padding: 1rem 1.5rem;
+  }
+
+  /* Responsive adjustments */
+  @media (min-width: 768px) {
+    .modal-default {
+      margin: 2rem auto;
+    }
+
+    .modal-drawer.modal-full {
+      width: 100%;
+    }
+
+    .modal-drawer:not(.modal-full) {
+      width: 75%;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .modal-drawer:not(.modal-full) {
+      width: 50%;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .modal-drawer:not(.modal-full) {
+      width: 33.333333%;
+    }
+  }
+}

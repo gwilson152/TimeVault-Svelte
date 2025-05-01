@@ -455,7 +455,7 @@
           </div>
 
           {#snippet footer()}
-            <div slot="footer" class="flex justify-end gap-3">
+            <div class="flex justify-end gap-3">
               <button class="btn btn-secondary" onclick={() => confirmModal = false}>Cancel</button>
               <button class="btn btn-primary" onclick={handleConfirm}>Create Entries</button>
             </div>
